@@ -1,0 +1,238 @@
+@import "tailwindcss";
+
+@theme {
+  /* Atelier 工作室：亚麻暖灰 + 墨黑 + 深松石 */
+  --color-ink: #EFEBE3;          /* 页面底：亚麻暖灰 */
+  --color-well: #FBF9F4;         /* 卡片/输入底：奶白 */
+  --color-panel: #FBF9F4;
+  --color-panel2: #E4DFD3;       /* 悬停/次级面板：深一档亚麻 */
+  --color-line: #DCD6C8;         /* 分隔线 */
+  --color-line2: #C9C2B0;        /* 强分隔线 */
+  --color-paper: #26231C;        /* 主文字：暖墨黑 */
+  --color-fade: #6B6558;         /* 次级文字 */
+  --color-dim: #6F695E;          /* 弱文字：在亚麻底上仍满足小字对比度 */
+  --color-accent: #1F6E62;       /* 强调：深松石绿（状态/选中/链接） */
+  --color-accenthi: #17554B;     /* 强调加深 */
+  --color-accentsoft: #DCE9E2;   /* 强调浅底 */
+  --color-red: #B5493C;
+  --color-green: #1F6E62;
+
+  /* 兼容旧类名的别名（历史代码里 amber 系直接映射到强调色） */
+  --color-amber: #1F6E62;
+  --color-amberhi: #17554B;
+  --color-amberdeep: #9DC3B8;
+
+  --font-sans: "Segoe UI", "Microsoft YaHei", "PingFang SC", "Noto Sans SC", system-ui, sans-serif;
+  --font-serif: "Georgia", "Times New Roman", "STZhongsong", "SimSun", serif;
+  --font-mono: "Cascadia Code", "Consolas", "SFMono-Regular", Menlo, monospace;
+
+  --shadow-card: 0 1px 2px rgb(38 35 28 / 0.05), 0 3px 10px rgb(38 35 28 / 0.06);
+  --shadow-lift: 0 2px 6px rgb(38 35 28 / 0.07), 0 16px 36px rgb(38 35 28 / 0.13);
+  --shadow-pop: 0 4px 14px rgb(38 35 28 / 0.1), 0 28px 64px rgb(38 35 28 / 0.2);
+
+  --ease-out-soft: cubic-bezier(0.22, 0.8, 0.3, 1);
+  --ease-spring: cubic-bezier(0.34, 1.45, 0.5, 1);
+}
+
+html, body, #app { height: 100%; }
+
+body {
+  background: var(--color-ink);
+  color: var(--color-paper);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* 纸张肌理：极淡的噪点铺满页面底，避免大面积纯色的塑料感 */
+body::before {
+  content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 0;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)' opacity='0.35'/%3E%3C/svg%3E");
+  opacity: 0.05;
+}
+#app { position: relative; z-index: 1; }
+
+::selection { background: color-mix(in srgb, var(--color-accent) 22%, transparent); }
+
+* { scrollbar-width: thin; scrollbar-color: var(--color-line2) transparent; }
+*::-webkit-scrollbar { width: 10px; height: 10px; }
+*::-webkit-scrollbar-thumb { background: var(--color-line2); border-radius: 5px; border: 2px solid var(--color-ink); }
+*::-webkit-scrollbar-track { background: transparent; }
+
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* 标题衬线：工作室的人文气 */
+.display {
+  font-family: var(--font-serif);
+  letter-spacing: 0.01em;
+}
+
+/* ───────── 生成中：亚麻底 shimmer ───────── */
+.noise {
+  position: relative;
+  background: linear-gradient(110deg, #E2DDD0 40%, #EFEBE1 50%, #E2DDD0 60%);
+  background-size: 220% 100%;
+  animation: shimmer 1.6s linear infinite;
+}
+@keyframes shimmer {
+  from { background-position: 130% 0; }
+  to { background-position: -90% 0; }
+}
+
+.develop-in { animation: develop 0.9s var(--ease-out-soft) both; }
+@keyframes develop {
+  0% { filter: blur(12px) brightness(1.18) saturate(0.6); opacity: 0; transform: scale(1.02); }
+  55% { filter: blur(3px) brightness(1.06) saturate(0.85); opacity: 1; }
+  100% { filter: none; opacity: 1; transform: none; }
+}
+
+.pulse-soft { animation: pulse-soft 2.2s ease-in-out infinite; }
+@keyframes pulse-soft { 0%, 100% { opacity: 0.45; } 50% { opacity: 1; } }
+
+@keyframes spin { from { transform: rotate(0); } to { transform: rotate(360deg); } }
+
+.drawer-in { animation: drawer-in 0.32s var(--ease-out-soft) both; }
+@keyframes drawer-in { from { transform: translateX(48px); opacity: 0; } to { transform: none; opacity: 1; } }
+
+.fade-in { animation: fade-in 0.22s ease-out both; }
+@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+
+.pop-in { animation: pop-in 0.34s var(--ease-spring) both; }
+@keyframes pop-in {
+  from { opacity: 0; transform: scale(0.94) translateY(10px); }
+  to { opacity: 1; transform: none; }
+}
+
+.rise-in { animation: rise-in 0.5s var(--ease-out-soft) both; animation-delay: calc(var(--stagger, 0) * 36ms); }
+@keyframes rise-in {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: none; }
+}
+
+.heart-pop { animation: heart-pop 0.45s var(--ease-spring); }
+@keyframes heart-pop {
+  0% { transform: scale(0.4); }
+  60% { transform: scale(1.3); }
+  100% { transform: scale(1); }
+}
+
+/* 浮窗展开/收起 */
+.dock-expand { animation: dock-expand 0.36s var(--ease-spring) both; }
+@keyframes dock-expand {
+  from { opacity: 0; transform: translateY(24px) scale(0.98); }
+  to { opacity: 1; transform: none; }
+}
+
+.progress-line {
+  position: relative; overflow: hidden;
+  height: 2px; background: var(--color-line);
+}
+.progress-line::after {
+  content: ""; position: absolute; top: 0; bottom: 0; width: 34%;
+  background: var(--color-accent); border-radius: 2px;
+  animation: progress-sweep 1.3s var(--ease-out-soft) infinite;
+}
+@keyframes progress-sweep {
+  from { left: -34%; }
+  to { left: 100%; }
+}
+
+.page-enter-active { transition: opacity 0.26s ease, transform 0.26s var(--ease-out-soft); }
+.page-leave-active { transition: opacity 0.16s ease; }
+.page-enter-from { opacity: 0; transform: translateY(10px); }
+.page-leave-to { opacity: 0; }
+
+/* ───────── 控件 ───────── */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  border-radius: 10px; font-size: 13px; line-height: 1;
+  padding: 9px 14px; border: 1px solid var(--color-line2);
+  background: var(--color-well); color: var(--color-paper);
+  cursor: pointer;
+  transition: background 0.16s, border-color 0.16s, color 0.16s,
+              transform 0.16s var(--ease-out-soft), box-shadow 0.16s;
+  user-select: none; white-space: nowrap;
+}
+.btn:hover { background: var(--color-panel2); border-color: var(--color-dim); transform: translateY(-1px); box-shadow: var(--shadow-card); }
+.btn:active { transform: translateY(0); box-shadow: none; }
+.btn:disabled { opacity: 0.45; cursor: not-allowed; transform: none; box-shadow: none; }
+
+/* 主按钮：墨黑，不是彩色 —— 工作室的克制 */
+.btn-primary {
+  background: var(--color-paper); border-color: var(--color-paper); color: var(--color-well); font-weight: 600;
+  box-shadow: 0 2px 10px rgb(38 35 28 / 0.22);
+}
+.btn-primary:hover {
+  background: #3A362C; border-color: #3A362C; color: var(--color-well);
+  box-shadow: 0 4px 16px rgb(38 35 28 / 0.3);
+}
+/* 兼容旧类名 */
+.btn-amber {
+  background: var(--color-paper); border-color: var(--color-paper); color: var(--color-well); font-weight: 600;
+  box-shadow: 0 2px 10px rgb(38 35 28 / 0.22);
+}
+.btn-amber:hover {
+  background: #3A362C; border-color: #3A362C; color: var(--color-well);
+  box-shadow: 0 4px 16px rgb(38 35 28 / 0.3);
+}
+
+.btn-ghost { background: transparent; border-color: transparent; color: var(--color-fade); box-shadow: none; }
+.btn-ghost:hover { background: var(--color-panel2); color: var(--color-paper); border-color: transparent; box-shadow: none; }
+
+.btn-danger { color: var(--color-red); }
+.btn-danger:hover { border-color: var(--color-red); background: color-mix(in srgb, var(--color-red) 7%, transparent); }
+
+.chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  border-radius: 999px; border: 1px solid var(--color-line2);
+  padding: 4px 11px; font-size: 12px; color: var(--color-fade);
+  background: var(--color-well);
+  cursor: pointer; user-select: none; white-space: nowrap;
+  transition: color 0.16s, border-color 0.16s, background 0.16s,
+              transform 0.18s var(--ease-spring), box-shadow 0.16s;
+}
+.chip:hover { color: var(--color-paper); border-color: var(--color-dim); transform: translateY(-1px); box-shadow: var(--shadow-card); }
+.chip:active { transform: scale(0.96); }
+.chip.on {
+  background: var(--color-accentsoft);
+  border-color: var(--color-accent); color: var(--color-accenthi);
+}
+
+.seg {
+  display: flex; background: var(--color-panel2);
+  border: 1px solid var(--color-line); border-radius: 10px; padding: 3px; gap: 2px;
+}
+.seg > button {
+  flex: 1; border: none; background: transparent; color: var(--color-fade);
+  font-size: 12px; padding: 6px 4px; border-radius: 7px; cursor: pointer;
+  transition: color 0.15s, background 0.2s var(--ease-out-soft), box-shadow 0.2s;
+  font-family: inherit; white-space: nowrap;
+}
+.seg > button:hover { color: var(--color-paper); }
+.seg > button.on {
+  background: var(--color-well); color: var(--color-paper); font-weight: 600;
+  box-shadow: 0 1px 3px rgb(38 35 28 / 0.12);
+}
+
+.field-label {
+  font-size: 11px; letter-spacing: 0.14em; color: var(--color-dim);
+  text-transform: uppercase; font-family: var(--font-mono);
+}
+
+.input {
+  background: var(--color-well); border: 1px solid var(--color-line2);
+  border-radius: 10px; padding: 8px 12px; font-size: 13px; color: var(--color-paper);
+  width: 100%; transition: border-color 0.16s, box-shadow 0.16s;
+}
+.input::placeholder { color: var(--color-dim); }
+.input:focus {
+  border-color: var(--color-accent); outline: none;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 14%, transparent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}
