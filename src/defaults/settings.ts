@@ -7,6 +7,7 @@ const OPENAI_GENERATION_BODY = JSON.stringify({
   quality: '{{quality}}',
   output_format: '{{format}}',
   n: '{{n}}',
+  response_format: 'b64_json',
 }, null, 2)
 
 const OPENAI_EDIT_BODY = JSON.stringify({
@@ -17,6 +18,7 @@ const OPENAI_EDIT_BODY = JSON.stringify({
   quality: '{{quality}}',
   output_format: '{{format}}',
   n: '{{n}}',
+  response_format: 'b64_json',
 }, null, 2)
 
 export const DEFAULT_SETTINGS: AppSettings = {

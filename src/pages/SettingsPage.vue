@@ -7,7 +7,17 @@ import { useTemplateStore } from '@/stores/templates'
 import { useUiStore } from '@/stores/ui'
 import { exportBackup, importBackup } from '@/services/backup'
 import { replaceAllData } from '@/services/database'
-import { QUALITY_OPTIONS, SIZE_OPTIONS, type ImageQuality, type ImageSize } from '@/types'
+import {
+  ASPECT_RATIO_OPTIONS,
+  QUALITY_OPTIONS,
+  RESOLUTION_OPTIONS,
+  getImageAspectRatio,
+  getImageResolution,
+  getImageSize,
+  type ImageAspectRatio,
+  type ImageQuality,
+  type ImageResolution,
+} from '@/types'
 
 const gallery = useGalleryStore()
 const settingsStore = useSettingsStore()
@@ -42,6 +52,8 @@ const quotaText = computed(() => {
   const total = (storageQuota.value.quota / 1024 / 1024 / 1024).toFixed(1)
   return `浏览器已用 ${used} MB / 可用配额约 ${total} GB`
 })
+const defaultAspectRatio = computed(() => getImageAspectRatio(settingsStore.settings.defaultParams.size))
+const defaultResolution = computed(() => getImageResolution(settingsStore.settings.defaultParams.size))
 
 async function refreshStorageEstimate() {
   if (!navigator.storage?.estimate) return
@@ -65,7 +77,14 @@ async function resetOpenAiPreset() {
   ui.showToast('已恢复 OpenAI Images API 预设')
 }
 
-function setDefaultSize(size: ImageSize) {
+function setDefaultAspectRatio(aspectRatio: ImageAspectRatio) {
+  const size = getImageSize(aspectRatio, defaultResolution.value)
+  settingsStore.settings.defaultParams.size = size
+  ui.draftParams.size = size
+}
+
+function setDefaultResolution(resolution: ImageResolution) {
+  const size = getImageSize(defaultAspectRatio.value, resolution)
   settingsStore.settings.defaultParams.size = size
   ui.draftParams.size = size
 }
@@ -262,11 +281,17 @@ onBeforeUnmount(() => {
 
       <section class="rise-in mb-5 rounded-2xl border border-line bg-well p-5 shadow-card" style="--stagger: 2">
         <h2 class="mb-4 text-[13.5px] font-semibold">默认生成参数与预算</h2>
-        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
           <div>
-            <div class="field-label mb-1.5">尺寸</div>
-            <div class="seg" role="group" aria-label="默认图片尺寸">
-              <button v-for="option in SIZE_OPTIONS" :key="option.value" :class="{ on: settingsStore.settings.defaultParams.size === option.value }" @click="setDefaultSize(option.value)">{{ option.ratio }}</button>
+            <div class="field-label mb-1.5">比例</div>
+            <div class="seg" role="group" aria-label="默认图片比例">
+              <button v-for="option in ASPECT_RATIO_OPTIONS" :key="option.value" :class="{ on: defaultAspectRatio === option.value }" @click="setDefaultAspectRatio(option.value)">{{ option.label }}</button>
+            </div>
+          </div>
+          <div>
+            <div class="field-label mb-1.5">分辨率</div>
+            <div class="seg" role="group" aria-label="默认图片分辨率">
+              <button v-for="option in RESOLUTION_OPTIONS" :key="option.value" :class="{ on: defaultResolution === option.value }" :title="getImageSize(defaultAspectRatio, option.value).replace('x', ' × ')" @click="setDefaultResolution(option.value)">{{ option.label }}</button>
             </div>
           </div>
           <div>

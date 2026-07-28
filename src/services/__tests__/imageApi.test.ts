@@ -5,6 +5,23 @@ import { buildJsonRequestBody, buildMultipartRequestBody, requestImages } from '
 describe('custom image API request templates', () => {
   afterEach(() => vi.unstubAllGlobals())
 
+  it('requests base64 image responses in the default templates', () => {
+    const settings = cloneDefaultSettings().api
+    const generationBody = JSON.parse(settings.generation.bodyTemplate) as Record<string, unknown>
+    const editBody = JSON.parse(settings.edit.bodyTemplate) as Record<string, unknown>
+
+    expect(generationBody).toMatchObject({
+      model: '{{model}}',
+      output_format: '{{format}}',
+      response_format: 'b64_json',
+    })
+    expect(editBody).toMatchObject({
+      image: '{{referenceImageFile}}',
+      output_format: '{{format}}',
+      response_format: 'b64_json',
+    })
+  })
+
   it('preserves typed values for exact placeholders', () => {
     const body = buildJsonRequestBody(
       '{"prompt":"{{prompt}}","count":"{{n}}","label":"size={{size}}"}',
@@ -58,6 +75,26 @@ describe('custom image API request templates', () => {
         referenceImageFile: new Blob(['reference'], { type: 'image/png' }),
       },
     )).toThrow('JSON 请求体不能使用')
+  })
+
+  it('parses default b64_json image responses', async () => {
+    vi.stubGlobal('window', globalThis)
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
+      created: 1_713_833_628,
+      data: [{ b64_json: btoa('generated-image') }],
+      usage: { total_tokens: 100 },
+    }), { status: 200, headers: { 'content-type': 'application/json' } })))
+
+    const result = await requestImages({
+      settings: cloneDefaultSettings().api,
+      prompt: 'a quiet lake',
+      params: { size: '1024x1024', quality: 'medium', format: 'png', n: 1 },
+    })
+
+    expect(result.images).toHaveLength(1)
+    expect(result.images[0].mimeType).toBe('image/png')
+    expect(await result.images[0].blob.text()).toBe('generated-image')
+    expect(result.usage).toEqual({ total_tokens: 100 })
   })
 
   it('parses a custom base64 response mapping', async () => {

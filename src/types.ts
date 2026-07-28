@@ -1,4 +1,12 @@
-export type ImageSize = '1024x1024' | '1536x1024' | '1024x1536' | '2048x2048'
+export type ImageAspectRatio = '1:1' | '3:2' | '2:3'
+export type ImageResolution = '1K' | '2K'
+export type ImageSize =
+  | '1024x1024'
+  | '1536x1024'
+  | '1024x1536'
+  | '2048x2048'
+  | '2016x1344'
+  | '1344x2016'
 export type ImageQuality = 'low' | 'medium' | 'high'
 export type ImageFormat = 'png' | 'webp' | 'jpeg'
 export type TaskStatus = 'queued' | 'running' | 'done' | 'failed' | 'canceled'
@@ -131,12 +139,46 @@ export interface PromptTemplate {
   useCount: number
 }
 
-export const SIZE_OPTIONS: { value: ImageSize; label: string; ratio: string }[] = [
-  { value: '1024x1024', label: '1024 × 1024', ratio: '1:1' },
-  { value: '1536x1024', label: '1536 × 1024', ratio: '3:2' },
-  { value: '1024x1536', label: '1024 × 1536', ratio: '2:3' },
-  { value: '2048x2048', label: '2048 × 2048', ratio: '2K' },
+export const ASPECT_RATIO_OPTIONS: { value: ImageAspectRatio; label: string }[] = [
+  { value: '1:1', label: '1:1' },
+  { value: '3:2', label: '3:2' },
+  { value: '2:3', label: '2:3' },
 ]
+
+export const RESOLUTION_OPTIONS: { value: ImageResolution; label: string }[] = [
+  { value: '1K', label: '1K' },
+  { value: '2K', label: '2K' },
+]
+
+export const SIZE_OPTIONS: {
+  value: ImageSize
+  label: string
+  aspectRatio: ImageAspectRatio
+  resolution: ImageResolution
+}[] = [
+  { value: '1024x1024', label: '1024 × 1024', aspectRatio: '1:1', resolution: '1K' },
+  { value: '1536x1024', label: '1536 × 1024', aspectRatio: '3:2', resolution: '1K' },
+  { value: '1024x1536', label: '1024 × 1536', aspectRatio: '2:3', resolution: '1K' },
+  { value: '2048x2048', label: '2048 × 2048', aspectRatio: '1:1', resolution: '2K' },
+  { value: '2016x1344', label: '2016 × 1344', aspectRatio: '3:2', resolution: '2K' },
+  { value: '1344x2016', label: '1344 × 2016', aspectRatio: '2:3', resolution: '2K' },
+]
+
+export function getImageSize(aspectRatio: ImageAspectRatio, resolution: ImageResolution): ImageSize {
+  const matchingOption = SIZE_OPTIONS.find(option =>
+    option.aspectRatio === aspectRatio && option.resolution === resolution,
+  )
+  if (!matchingOption) throw new Error(`不支持的图片尺寸组合：${aspectRatio} ${resolution}`)
+  return matchingOption.value
+}
+
+export function getImageAspectRatio(size: ImageSize): ImageAspectRatio {
+  return SIZE_OPTIONS.find(option => option.value === size)?.aspectRatio ?? '1:1'
+}
+
+export function getImageResolution(size: ImageSize): ImageResolution {
+  return SIZE_OPTIONS.find(option => option.value === size)?.resolution ?? '1K'
+}
 
 export const QUALITY_OPTIONS: { value: ImageQuality; label: string; cost: number }[] = [
   { value: 'low', label: '低', cost: 0.02 },

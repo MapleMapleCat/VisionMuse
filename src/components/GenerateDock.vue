@@ -8,12 +8,18 @@ import { useSettingsStore } from '@/stores/settings'
 import { useTemplateStore } from '@/stores/templates'
 import { createReferenceImage } from '@/services/imageAssets'
 import {
+  ASPECT_RATIO_OPTIONS,
   FORMAT_OPTIONS,
   QUALITY_OPTIONS,
-  SIZE_OPTIONS,
+  RESOLUTION_OPTIONS,
   estimateCost,
+  getImageAspectRatio,
+  getImageResolution,
+  getImageSize,
   type GenerationTask,
+  type ImageAspectRatio,
   type ImageRecord,
+  type ImageResolution,
 } from '@/types'
 
 const gallery = useGalleryStore()
@@ -49,8 +55,17 @@ const recentPrompts = computed(() => {
   }
   return result
 })
-const sizeRatio = computed(() => SIZE_OPTIONS.find(option => option.value === ui.draftParams.size)?.ratio ?? '1:1')
+const imageAspectRatio = computed(() => getImageAspectRatio(ui.draftParams.size))
+const imageResolution = computed(() => getImageResolution(ui.draftParams.size))
 const qualityLabel = computed(() => QUALITY_OPTIONS.find(option => option.value === ui.draftParams.quality)?.label ?? '中')
+
+function setImageAspectRatio(aspectRatio: ImageAspectRatio) {
+  ui.draftParams.size = getImageSize(aspectRatio, imageResolution.value)
+}
+
+function setImageResolution(resolution: ImageResolution) {
+  ui.draftParams.size = getImageSize(imageAspectRatio.value, resolution)
+}
 
 async function submit() {
   if (!canSubmit.value) return
@@ -315,7 +330,7 @@ watch(
           :aria-expanded="ui.dockOpen"
           @click="openDock"
         >
-          {{ sizeRatio }} · {{ qualityLabel }} · {{ ui.draftParams.n }} 张
+          {{ imageAspectRatio }} · {{ imageResolution }} · {{ qualityLabel }} · {{ ui.draftParams.n }} 张
         </button>
         <button class="send-button" :disabled="!canSubmit" title="生成（Ctrl + Enter）" aria-label="生成图片" @click="submit">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -376,17 +391,29 @@ watch(
       </div>
 
       <div v-if="ui.dockOpen" class="parameter-tray dock-expand">
-        <div class="parameter-group size-group">
-          <span class="field-label">尺寸</span>
-          <div class="seg" role="group" aria-label="图片尺寸">
+        <div class="parameter-group ratio-group">
+          <span class="field-label">比例</span>
+          <div class="seg" role="group" aria-label="图片比例">
             <button
-              v-for="option in SIZE_OPTIONS"
+              v-for="option in ASPECT_RATIO_OPTIONS"
               :key="option.value"
-              :class="{ on: ui.draftParams.size === option.value }"
-              :aria-pressed="ui.draftParams.size === option.value"
-              :title="option.label"
-              @click="ui.draftParams.size = option.value"
-            >{{ option.ratio }}</button>
+              :class="{ on: imageAspectRatio === option.value }"
+              :aria-pressed="imageAspectRatio === option.value"
+              @click="setImageAspectRatio(option.value)"
+            >{{ option.label }}</button>
+          </div>
+        </div>
+        <div class="parameter-group resolution-group">
+          <span class="field-label">分辨率</span>
+          <div class="seg" role="group" aria-label="图片分辨率">
+            <button
+              v-for="option in RESOLUTION_OPTIONS"
+              :key="option.value"
+              :class="{ on: imageResolution === option.value }"
+              :aria-pressed="imageResolution === option.value"
+              :title="getImageSize(imageAspectRatio, option.value).replace('x', ' × ')"
+              @click="setImageResolution(option.value)"
+            >{{ option.label }}</button>
           </div>
         </div>
         <div class="parameter-group">
@@ -634,7 +661,7 @@ watch(
 
 .parameter-tray {
   display: grid;
-  grid-template-columns: 1.35fr 1fr 1fr 1.1fr auto;
+  grid-template-columns: 1.25fr 0.85fr 1fr 1fr 1.1fr auto;
   gap: 12px;
   align-items: end;
   border-top: 1px solid var(--color-line);
@@ -667,7 +694,7 @@ watch(
   .composer-tools { padding-left: 44px; }
   .parameter-summary { display: none; }
   .parameter-tray { grid-template-columns: 1fr 1fr; padding: 11px 12px 14px; }
-  .size-group, .format-group { grid-column: span 2; }
+  .ratio-group, .format-group { grid-column: span 2; }
   .cost-block { text-align: left; }
 }
 
