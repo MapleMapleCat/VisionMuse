@@ -1,6 +1,7 @@
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb'
 import type {
   AppSettings,
+  PromptModule,
   PromptTemplate,
   StoredGenerationTask,
   StoredImageRecord,
@@ -26,24 +27,40 @@ interface VisionMuseDatabase extends DBSchema {
     key: string
     value: PromptTemplate
   }
+  promptModules: {
+    key: string
+    value: PromptModule
+  }
 }
 
 let databasePromise: Promise<IDBPDatabase<VisionMuseDatabase>> | undefined
 
 export function getDatabase(): Promise<IDBPDatabase<VisionMuseDatabase>> {
   if (!databasePromise) {
-    databasePromise = openDB<VisionMuseDatabase>('vision-muse', 1, {
+    databasePromise = openDB<VisionMuseDatabase>('vision-muse', 2, {
       upgrade(database) {
-        database.createObjectStore('settings')
+        if (!database.objectStoreNames.contains('settings')) {
+          database.createObjectStore('settings')
+        }
 
-        const taskStore = database.createObjectStore('tasks', { keyPath: 'id' })
-        taskStore.createIndex('by-created-at', 'createdAt')
+        if (!database.objectStoreNames.contains('tasks')) {
+          const taskStore = database.createObjectStore('tasks', { keyPath: 'id' })
+          taskStore.createIndex('by-created-at', 'createdAt')
+        }
 
-        const imageStore = database.createObjectStore('images', { keyPath: 'id' })
-        imageStore.createIndex('by-created-at', 'createdAt')
-        imageStore.createIndex('by-deleted-at', 'deletedAt')
+        if (!database.objectStoreNames.contains('images')) {
+          const imageStore = database.createObjectStore('images', { keyPath: 'id' })
+          imageStore.createIndex('by-created-at', 'createdAt')
+          imageStore.createIndex('by-deleted-at', 'deletedAt')
+        }
 
-        database.createObjectStore('templates', { keyPath: 'id' })
+        if (!database.objectStoreNames.contains('templates')) {
+          database.createObjectStore('templates', { keyPath: 'id' })
+        }
+
+        if (!database.objectStoreNames.contains('promptModules')) {
+          database.createObjectStore('promptModules', { keyPath: 'id' })
+        }
       },
     })
   }
@@ -108,23 +125,48 @@ export async function deleteTemplate(templateId: string): Promise<void> {
   await (await getDatabase()).delete('templates', templateId)
 }
 
+export async function loadPromptModules(): Promise<PromptModule[]> {
+  return (await getDatabase()).getAll('promptModules')
+}
+
+export async function savePromptModule(promptModule: PromptModule): Promise<void> {
+  await (await getDatabase()).put('promptModules', cloneForStorage(promptModule))
+}
+
+export async function savePromptModules(promptModules: PromptModule[]): Promise<void> {
+  const database = await getDatabase()
+  const transaction = database.transaction('promptModules', 'readwrite')
+  await Promise.all([
+    ...promptModules.map(promptModule => transaction.store.put(cloneForStorage(promptModule))),
+    transaction.done,
+  ])
+}
+
 export async function replaceAllData(data: {
   settings: AppSettings
   tasks: StoredGenerationTask[]
   images: StoredImageRecord[]
   templates: PromptTemplate[]
+  promptModules: PromptModule[]
 }): Promise<void> {
   const database = await getDatabase()
-  const transaction = database.transaction(['settings', 'tasks', 'images', 'templates'], 'readwrite')
+  const transaction = database.transaction(
+    ['settings', 'tasks', 'images', 'templates', 'promptModules'],
+    'readwrite',
+  )
   await Promise.all([
     transaction.objectStore('settings').clear(),
     transaction.objectStore('tasks').clear(),
     transaction.objectStore('images').clear(),
     transaction.objectStore('templates').clear(),
+    transaction.objectStore('promptModules').clear(),
   ])
   await transaction.objectStore('settings').put(cloneForStorage(data.settings), 'app')
   await Promise.all(data.tasks.map(task => transaction.objectStore('tasks').put(cloneForStorage(task))))
   await Promise.all(data.images.map(image => transaction.objectStore('images').put(cloneForStorage(image))))
   await Promise.all(data.templates.map(template => transaction.objectStore('templates').put(cloneForStorage(template))))
+  await Promise.all(data.promptModules.map(promptModule => (
+    transaction.objectStore('promptModules').put(cloneForStorage(promptModule))
+  )))
   await transaction.done
 }

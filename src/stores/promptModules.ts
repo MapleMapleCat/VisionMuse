@@ -1,0 +1,42 @@
+import { defineStore } from 'pinia'
+import { ref } from 'vue'
+import { DEFAULT_PROMPT_MODULES } from '@/defaults/promptModules'
+import { cloneForStorage } from '@/services/clone'
+import { loadPromptModules, savePromptModule, savePromptModules } from '@/services/database'
+import type { PromptModule, PromptModuleCategory } from '@/types'
+
+export const usePromptModuleStore = defineStore('promptModules', () => {
+  const promptModules = ref<PromptModule[]>([])
+  const initialized = ref(false)
+
+  async function initialize() {
+    if (initialized.value) return
+    const storedPromptModules = await loadPromptModules()
+    if (storedPromptModules.length) {
+      promptModules.value = storedPromptModules
+    } else {
+      promptModules.value = cloneForStorage(DEFAULT_PROMPT_MODULES)
+      await savePromptModules(promptModules.value)
+    }
+    initialized.value = true
+  }
+
+  function getByCategory(category: PromptModuleCategory): PromptModule[] {
+    return promptModules.value
+      .filter(promptModule => promptModule.category === category)
+      .sort((firstModule, secondModule) => firstModule.sortOrder - secondModule.sortOrder)
+  }
+
+  async function recordUses(selectedPromptModules: PromptModule[]) {
+    await Promise.all(selectedPromptModules.map(async selectedPromptModule => {
+      const storedPromptModule = promptModules.value.find(promptModule => (
+        promptModule.id === selectedPromptModule.id
+      ))
+      if (!storedPromptModule) return
+      storedPromptModule.useCount += 1
+      await savePromptModule(storedPromptModule)
+    }))
+  }
+
+  return { promptModules, initialized, initialize, getByCategory, recordUses }
+})

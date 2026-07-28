@@ -3,10 +3,13 @@ import type {
   AppSettings,
   GenerationTask,
   ImageRecord,
+  PromptModule,
   PromptTemplate,
   StoredGenerationTask,
   StoredImageRecord,
 } from '@/types'
+import { PROMPT_MODULE_CATEGORY_KEYS } from '@/types'
+import { DEFAULT_PROMPT_MODULES } from '@/defaults/promptModules'
 import { downloadBlob } from './download'
 import { cloneForStorage } from './clone'
 
@@ -19,15 +22,25 @@ interface BackupImage extends Omit<StoredImageRecord, 'originalBlob' | 'thumbnai
   thumbnailBlobPath: string
 }
 
-interface BackupManifest {
+interface BackupManifestBase {
   format: 'vision-muse-backup'
-  version: 1
   exportedAt: string
   settings: AppSettings
   tasks: BackupTask[]
   images: BackupImage[]
   templates: PromptTemplate[]
 }
+
+interface BackupManifestV1 extends BackupManifestBase {
+  version: 1
+}
+
+interface BackupManifestV2 extends BackupManifestBase {
+  version: 2
+  promptModules: PromptModule[]
+}
+
+type BackupManifest = BackupManifestV1 | BackupManifestV2
 
 function toStoredTask(task: GenerationTask): StoredGenerationTask {
   return {
@@ -54,6 +67,7 @@ export async function exportBackup(options: {
   tasks: GenerationTask[]
   images: ImageRecord[]
   templates: PromptTemplate[]
+  promptModules: PromptModule[]
 }): Promise<void> {
   const archiveFiles: Record<string, Uint8Array> = {}
   const tasks: BackupTask[] = []
@@ -79,14 +93,15 @@ export async function exportBackup(options: {
     images.push({ ...imageMetadata, originalBlobPath, thumbnailBlobPath })
   }
 
-  const manifest: BackupManifest = {
+  const manifest: BackupManifestV2 = {
     format: 'vision-muse-backup',
-    version: 1,
+    version: 2,
     exportedAt: new Date().toISOString(),
     settings: cloneForStorage(options.settings),
     tasks,
     images,
     templates: cloneForStorage(options.templates),
+    promptModules: cloneForStorage(options.promptModules),
   }
   archiveFiles['manifest.json'] = strToU8(JSON.stringify(manifest, null, 2))
   const archive = zipSync(archiveFiles, { level: 0 })
@@ -111,7 +126,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function validateBackupManifest(value: unknown): asserts value is BackupManifest {
-  if (!isRecord(value) || value.format !== 'vision-muse-backup' || value.version !== 1) {
+  if (!isRecord(value) || value.format !== 'vision-muse-backup'
+    || (value.version !== 1 && value.version !== 2)) {
     throw new Error('不是受支持的 VisionMuse 备份文件')
   }
   if (!isRecord(value.settings) || !isRecord(value.settings.api) || !isRecord(value.settings.defaultParams)) {
@@ -157,6 +173,18 @@ function validateBackupManifest(value: unknown): asserts value is BackupManifest
       throw new Error('备份中包含无效提示词模板')
     }
   }
+
+  if (value.version === 2) {
+    if (!Array.isArray(value.promptModules)) throw new Error('备份缺少提示词模块列表')
+    for (const promptModule of value.promptModules) {
+      if (!isRecord(promptModule) || typeof promptModule.id !== 'string'
+        || typeof promptModule.title !== 'string' || typeof promptModule.content !== 'string'
+        || !PROMPT_MODULE_CATEGORY_KEYS.some(category => category === promptModule.category)
+        || typeof promptModule.useCount !== 'number' || typeof promptModule.sortOrder !== 'number') {
+        throw new Error('备份中包含无效提示词模块')
+      }
+    }
+  }
 }
 
 export async function importBackup(file: File): Promise<{
@@ -164,6 +192,7 @@ export async function importBackup(file: File): Promise<{
   tasks: StoredGenerationTask[]
   images: StoredImageRecord[]
   templates: PromptTemplate[]
+  promptModules: PromptModule[]
 }> {
   if (file.size > 1024 * 1024 * 1024) throw new Error('备份文件超过 1 GB，浏览器无法安全导入')
   const files = unzipSync(new Uint8Array(await file.arrayBuffer()))
@@ -201,5 +230,8 @@ export async function importBackup(file: File): Promise<{
     tasks,
     images,
     templates: manifest.templates,
+    promptModules: manifest.version === 2
+      ? manifest.promptModules
+      : cloneForStorage(DEFAULT_PROMPT_MODULES),
   }
 }

@@ -133,6 +133,26 @@ export interface PromptTemplate {
   useCount: number
 }
 
+export const PROMPT_MODULE_CATEGORY_KEYS = [
+  'style',
+  'composition',
+  'lighting',
+  'environment',
+  'color',
+  'detail',
+] as const
+
+export type PromptModuleCategory = typeof PROMPT_MODULE_CATEGORY_KEYS[number]
+
+export interface PromptModule {
+  id: string
+  title: string
+  content: string
+  category: PromptModuleCategory
+  useCount: number
+  sortOrder: number
+}
+
 export const ASPECT_RATIO_OPTIONS: { value: ImageAspectRatio; label: string }[] = [
   { value: '1:1', label: '1:1' },
   { value: '4:3', label: '4:3' },

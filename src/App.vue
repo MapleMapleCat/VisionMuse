@@ -5,6 +5,7 @@ import { useUiStore } from '@/stores/ui'
 import { useSettingsStore } from '@/stores/settings'
 import { useTaskStore } from '@/stores/tasks'
 import { useTemplateStore } from '@/stores/templates'
+import { usePromptModuleStore } from '@/stores/promptModules'
 import SideNav from '@/components/SideNav.vue'
 import ImageViewer from '@/components/ImageViewer.vue'
 import GenerateDock from '@/components/GenerateDock.vue'
@@ -14,6 +15,7 @@ const ui = useUiStore()
 const settings = useSettingsStore()
 const tasks = useTaskStore()
 const templates = useTemplateStore()
+const promptModules = usePromptModuleStore()
 const ready = ref(false)
 const startupError = ref('')
 
@@ -21,7 +23,7 @@ onMounted(async () => {
   try {
     await settings.initialize()
     ui.draftParams = { ...settings.settings.defaultParams }
-    await Promise.all([gallery.initialize(), templates.initialize()])
+    await Promise.all([gallery.initialize(), templates.initialize(), promptModules.initialize()])
     await tasks.initialize()
     ready.value = true
   } catch (error) {
@@ -60,7 +62,7 @@ onMounted(async () => {
       <div v-if="!startupError" class="pulse-soft mx-auto mb-4 h-3 w-3 rounded-full bg-accent" />
       <p class="display text-[22px]">{{ startupError ? '本地数据加载失败' : '正在打开本地工作室' }}</p>
       <p class="mt-2 max-w-lg text-[12px] leading-relaxed" :class="startupError ? 'text-red' : 'text-dim'">
-        {{ startupError || '正在恢复设置、图库、模板和任务记录…' }}
+        {{ startupError || '正在恢复设置、图库、提示词模块和任务记录…' }}
       </p>
     </div>
   </div>

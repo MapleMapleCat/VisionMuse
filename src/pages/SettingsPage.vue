@@ -4,6 +4,7 @@ import { useGalleryStore } from '@/stores/gallery'
 import { useSettingsStore } from '@/stores/settings'
 import { useTaskStore } from '@/stores/tasks'
 import { useTemplateStore } from '@/stores/templates'
+import { usePromptModuleStore } from '@/stores/promptModules'
 import { useUiStore } from '@/stores/ui'
 import { exportBackup, importBackup } from '@/services/backup'
 import { replaceAllData } from '@/services/database'
@@ -23,6 +24,7 @@ const gallery = useGalleryStore()
 const settingsStore = useSettingsStore()
 const tasks = useTaskStore()
 const templateStore = useTemplateStore()
+const promptModuleStore = usePromptModuleStore()
 const ui = useUiStore()
 
 const showAdvanced = ref(false)
@@ -112,6 +114,7 @@ async function createBackup() {
       tasks: tasks.tasks,
       images: gallery.images,
       templates: templateStore.templates,
+      promptModules: promptModuleStore.promptModules,
     })
     ui.showToast('完整备份已导出')
   } catch (error) {
@@ -130,7 +133,7 @@ async function restoreBackup(event: Event) {
     ui.showToast('请先等待或取消所有生成任务，再导入备份')
     return
   }
-  if (!window.confirm('导入会覆盖当前浏览器中的设置、任务、模板和图库。建议先导出备份。确定继续吗？')) return
+  if (!window.confirm('导入会覆盖当前浏览器中的设置、任务、模板、提示词模块和图库。建议先导出备份。确定继续吗？')) return
   importing.value = true
   try {
     if (saveTimer) {
@@ -343,7 +346,7 @@ onBeforeUnmount(() => {
           <input v-model="settingsStore.settings.autoDownloadOriginals" type="checkbox" class="mt-0.5 h-4 w-4 accent-amber" />
           <span>生成完成后自动下载原图<span class="mt-0.5 block text-[11px] text-dim">原图仍会安全保存在 IndexedDB；浏览器可能要求你允许自动下载多个文件。</span></span>
         </label>
-        <p class="mt-3 text-[10.5px] leading-relaxed text-red/75">完整备份包含图片、任务、模板、设置以及 API Key，请像保管密钥一样保管备份文件。</p>
+        <p class="mt-3 text-[10.5px] leading-relaxed text-red/75">完整备份包含图片、任务、模板、提示词模块、设置以及 API Key，请像保管密钥一样保管备份文件。</p>
       </section>
 
       <p class="pb-4 text-center font-mono text-[10.5px] text-dim">VisionMuse · 浏览器直连生产版 · 数据仅保存在当前浏览器</p>

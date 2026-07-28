@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useGalleryStore } from '@/stores/gallery'
 import { useTaskStore } from '@/stores/tasks'
 import { useUiStore } from '@/stores/ui'
@@ -21,6 +21,7 @@ import {
   type ImageAspectRatio,
   type ImageRecord,
   type ImageResolution,
+  type PromptTemplate,
 } from '@/types'
 
 const gallery = useGalleryStore()
@@ -29,6 +30,7 @@ const ui = useUiStore()
 const settings = useSettingsStore()
 const templateStore = useTemplateStore()
 const route = useRoute()
+const router = useRouter()
 
 const promptEl = ref<HTMLTextAreaElement>()
 const customAspectRatioEl = ref<HTMLInputElement>()
@@ -147,12 +149,16 @@ function openDock() {
   nextTick(() => promptEl.value?.focus())
 }
 
-function pickTemplate(content: string) {
-  const template = templateStore.templates.find(item => item.content === content)
-  if (template) void templateStore.recordUse(template)
-  ui.draftPrompt = content
+function pickTemplate(template: PromptTemplate) {
+  void templateStore.recordUse(template)
+  ui.draftPrompt = template.content
   showTemplates.value = false
   nextTick(() => promptEl.value?.focus())
+}
+
+function openPromptComposer() {
+  showTemplates.value = false
+  void router.push('/prompts')
 }
 
 function pickHistory(prompt: string) {
@@ -404,7 +410,7 @@ watch(
             v-for="template in templateStore.templates.slice(0, 4)"
             :key="template.id"
             class="inspiration-chip"
-            @click="pickTemplate(template.content)"
+            @click="pickTemplate(template)"
           >{{ template.title }}</button>
         </div>
       </div>
@@ -470,8 +476,14 @@ watch(
             <span>模板</span>
           </button>
           <div v-if="showTemplates" id="dock-template-menu" class="dock-menu pop-in">
-            <p class="menu-title">提示词模板</p>
-            <button v-for="template in templateStore.templates" :key="template.id" @click="pickTemplate(template.content)">
+            <p class="menu-title">提示词工具</p>
+            <button class="composer-menu-entry" @click="openPromptComposer">
+              <span>模块化拼接</span>
+              <small>推荐</small>
+              <p>填写主体，按风格、构图、光线等功能快速组合</p>
+            </button>
+            <p class="menu-title !pt-3">完整模板</p>
+            <button v-for="template in templateStore.templates" :key="template.id" @click="pickTemplate(template)">
               <span>{{ template.title }}</span>
               <small>{{ template.category }}</small>
               <p>{{ template.content }}</p>
@@ -873,6 +885,12 @@ watch(
 .dock-menu > button > span { font-size: 11.5px; font-weight: 600; }
 .dock-menu > button > small { margin-left: 6px; font-family: var(--font-mono); font-size: 9.5px; color: var(--color-dim); }
 .dock-menu > button > p { margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10.5px; color: var(--color-fade); }
+.dock-menu > .composer-menu-entry {
+  border: 1px solid color-mix(in srgb, var(--color-accent) 28%, var(--color-line));
+  background: color-mix(in srgb, var(--color-accentsoft) 62%, var(--color-well));
+}
+.dock-menu > .composer-menu-entry:hover { background: var(--color-accentsoft); }
+.dock-menu > .composer-menu-entry > span { color: var(--color-accenthi); }
 
 .parameter-tray {
   --parameter-control-height: 36px;

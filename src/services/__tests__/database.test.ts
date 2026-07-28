@@ -2,7 +2,14 @@ import 'fake-indexeddb/auto'
 import { describe, expect, it } from 'vitest'
 import { reactive } from 'vue'
 import { cloneDefaultSettings } from '@/defaults/settings'
-import { loadSettings, loadTemplates, saveSettings, saveTemplates } from '@/services/database'
+import {
+  loadPromptModules,
+  loadSettings,
+  loadTemplates,
+  savePromptModules,
+  saveSettings,
+  saveTemplates,
+} from '@/services/database'
 
 describe('IndexedDB repositories', () => {
   it('persists settings including the browser-local API key', async () => {
@@ -29,6 +36,29 @@ describe('IndexedDB repositories', () => {
       content: 'A {{subject}}',
       category: 'Tests',
       useCount: 4,
+    })
+  })
+
+  it('persists functional prompt modules independently from full templates', async () => {
+    await savePromptModules([
+      {
+        id: 'module-test',
+        title: 'Soft light',
+        content: '柔和自然窗光',
+        category: 'lighting',
+        useCount: 3,
+        sortOrder: 20,
+      },
+    ])
+
+    const promptModules = await loadPromptModules()
+    expect(promptModules).toContainEqual({
+      id: 'module-test',
+      title: 'Soft light',
+      content: '柔和自然窗光',
+      category: 'lighting',
+      useCount: 3,
+      sortOrder: 20,
     })
   })
 })
