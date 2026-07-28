@@ -1,18 +1,37 @@
 <script setup lang="ts">
-import { onMounted } from 'vue'
+import { onMounted, ref } from 'vue'
 import { useGalleryStore } from '@/stores/gallery'
 import { useUiStore } from '@/stores/ui'
+import { useSettingsStore } from '@/stores/settings'
+import { useTaskStore } from '@/stores/tasks'
+import { useTemplateStore } from '@/stores/templates'
 import SideNav from '@/components/SideNav.vue'
 import ImageViewer from '@/components/ImageViewer.vue'
 import GenerateDock from '@/components/GenerateDock.vue'
 
 const gallery = useGalleryStore()
 const ui = useUiStore()
-onMounted(() => gallery.init())
+const settings = useSettingsStore()
+const tasks = useTaskStore()
+const templates = useTemplateStore()
+const ready = ref(false)
+const startupError = ref('')
+
+onMounted(async () => {
+  try {
+    await settings.initialize()
+    ui.draftParams = { ...settings.settings.defaultParams }
+    await Promise.all([gallery.initialize(), templates.initialize()])
+    await tasks.initialize()
+    ready.value = true
+  } catch (error) {
+    startupError.value = error instanceof Error ? error.message : String(error)
+  }
+})
 </script>
 
 <template>
-  <div class="app-shell flex h-full">
+  <div v-if="ready" class="app-shell flex h-full">
     <SideNav />
     <main class="app-main min-w-0 flex-1 overflow-hidden">
       <router-view v-slot="{ Component }">
@@ -35,6 +54,15 @@ onMounted(() => gallery.init())
         {{ ui.toast.text }}
       </div>
     </Transition>
+  </div>
+  <div v-else class="flex h-full items-center justify-center bg-ink px-6 text-center">
+    <div>
+      <div v-if="!startupError" class="pulse-soft mx-auto mb-4 h-3 w-3 rounded-full bg-accent" />
+      <p class="display text-[22px]">{{ startupError ? '本地数据加载失败' : '正在打开本地工作室' }}</p>
+      <p class="mt-2 max-w-lg text-[12px] leading-relaxed" :class="startupError ? 'text-red' : 'text-dim'">
+        {{ startupError || '正在恢复设置、图库、模板和任务记录…' }}
+      </p>
+    </div>
   </div>
 </template>
 

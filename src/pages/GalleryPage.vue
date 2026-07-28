@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useGalleryStore } from '@/stores/gallery'
 import { useUiStore } from '@/stores/ui'
 import type { ImageRecord } from '@/types'
+import { downloadImagesAsZip } from '@/services/download'
 
 const gallery = useGalleryStore()
 const ui = useUiStore()
@@ -103,39 +104,49 @@ function toggleTrash() {
   resetFilters()
 }
 
-function batchDelete() {
+async function batchDelete() {
   const count = selected.value.size
-  gallery.softDelete([...selected.value])
+  await gallery.softDelete([...selected.value])
   ui.showToast(`已移入回收站 · ${count} 张`)
   exitBatch()
 }
 
-function batchRestore() {
+async function batchRestore() {
   const count = selected.value.size
-  gallery.restore([...selected.value])
+  await gallery.restore([...selected.value])
   ui.showToast(`已恢复 ${count} 张`)
   exitBatch()
 }
 
-function batchPurge() {
+async function batchPurge() {
   const count = selected.value.size
-  gallery.purge([...selected.value])
+  if (!window.confirm(`将永久删除 ${count} 张图片，此操作无法撤销。继续吗？`)) return
+  await gallery.purge([...selected.value])
   ui.showToast(`已永久删除 ${count} 张`)
   exitBatch()
 }
 
-function batchTag() {
+async function batchTag() {
   const tag = prompt('为选中图片添加标签：')
   if (tag?.trim()) {
-    gallery.addTagToMany([...selected.value], tag.trim())
+    await gallery.addTagToMany([...selected.value], tag.trim())
     ui.showToast(`已添加标签「${tag.trim()}」`)
   }
   exitBatch()
 }
 
-function batchDownload() {
-  ui.showToast(`预览版：真实版本将打包下载 ${selected.value.size} 张原图`)
-  exitBatch()
+async function batchDownload() {
+  const selectedImages = [...selected.value]
+    .map(imageId => gallery.byId(imageId))
+    .filter((image): image is ImageRecord => Boolean(image))
+  try {
+    ui.showToast(`正在打包 ${selectedImages.length} 张图片…`)
+    await downloadImagesAsZip(selectedImages)
+    ui.showToast('图片压缩包已生成')
+    exitBatch()
+  } catch (error) {
+    ui.showToast(error instanceof Error ? error.message : String(error))
+  }
 }
 
 function dateLabel(timestamp: number) {

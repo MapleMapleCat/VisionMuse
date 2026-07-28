@@ -69,7 +69,7 @@ function openComposer() {
 
     <div class="nav-foot">
       <span class="online-dot" />
-      <span>本地预览</span>
+      <span>本地图库</span>
     </div>
   </nav>
 </template>

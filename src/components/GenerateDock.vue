@@ -4,6 +4,9 @@ import { useRoute } from 'vue-router'
 import { useGalleryStore } from '@/stores/gallery'
 import { useTaskStore } from '@/stores/tasks'
 import { useUiStore } from '@/stores/ui'
+import { useSettingsStore } from '@/stores/settings'
+import { useTemplateStore } from '@/stores/templates'
+import { createReferenceImage } from '@/services/imageAssets'
 import {
   FORMAT_OPTIONS,
   QUALITY_OPTIONS,
@@ -16,16 +19,23 @@ import {
 const gallery = useGalleryStore()
 const tasks = useTaskStore()
 const ui = useUiStore()
+const settings = useSettingsStore()
+const templateStore = useTemplateStore()
 const route = useRoute()
 
 const promptEl = ref<HTMLTextAreaElement>()
 const showTemplates = ref(false)
 const showHistory = ref(false)
 const now = ref(Date.now())
+const submitting = ref(false)
 const seenTerminalTasks = new Set<string>()
 
-const canSubmit = computed(() => ui.draftPrompt.trim().length > 0)
-const cost = computed(() => estimateCost(ui.draftParams, ui.referenceThumb ? 'edit' : 'generate'))
+const canSubmit = computed(() => ui.draftPrompt.trim().length > 0 && !submitting.value)
+const cost = computed(() => estimateCost(
+  ui.draftParams,
+  ui.referenceImage ? 'edit' : 'generate',
+  settings.settings.estimatedCostByQuality,
+))
 const recentTasks = computed(() => tasks.sessionTasks.slice(0, 4))
 const recentPrompts = computed(() => {
   const seen = new Set<string>()
@@ -42,14 +52,30 @@ const recentPrompts = computed(() => {
 const sizeRatio = computed(() => SIZE_OPTIONS.find(option => option.value === ui.draftParams.size)?.ratio ?? '1:1')
 const qualityLabel = computed(() => QUALITY_OPTIONS.find(option => option.value === ui.draftParams.quality)?.label ?? '中')
 
-function submit() {
+async function submit() {
   if (!canSubmit.value) return
-  tasks.submit(ui.draftPrompt.trim(), ui.draftParams, ui.referenceThumb)
-  ui.referenceThumb = undefined
-  ui.dockOpen = true
-  showTemplates.value = false
-  showHistory.value = false
-  ui.showToast('已加入生成队列')
+  if (!settings.apiConfigured) {
+    ui.showToast('请先在设置中完成图片接口配置')
+    return
+  }
+  const projectedDailyCost = tasks.todayCost + cost.value
+  if (projectedDailyCost > settings.settings.budgetDaily) {
+    const confirmed = window.confirm(`本次提交后，今日预估成本将达到 $${projectedDailyCost.toFixed(2)}，超过提醒阈值 $${settings.settings.budgetDaily.toFixed(2)}。仍要继续吗？`)
+    if (!confirmed) return
+  }
+  submitting.value = true
+  try {
+    await tasks.submit(ui.draftPrompt.trim(), ui.draftParams, ui.referenceImage)
+    ui.clearReferenceImage()
+    ui.dockOpen = true
+    showTemplates.value = false
+    showHistory.value = false
+    ui.showToast('已加入真实生成队列')
+  } catch (error) {
+    ui.showToast(error instanceof Error ? error.message : String(error))
+  } finally {
+    submitting.value = false
+  }
 }
 
 function onKeydown(event: KeyboardEvent) {
@@ -65,8 +91,8 @@ function openDock() {
 }
 
 function pickTemplate(content: string) {
-  const template = ui.templates.find(item => item.content === content)
-  if (template) template.useCount++
+  const template = templateStore.templates.find(item => item.content === content)
+  if (template) void templateStore.recordUse(template)
   ui.draftPrompt = content
   showTemplates.value = false
   nextTick(() => promptEl.value?.focus())
@@ -91,14 +117,13 @@ function onReferencePick(event: Event) {
   input.value = ''
 }
 
-function readReference(file: File) {
-  const reader = new FileReader()
-  reader.onload = () => {
-    ui.referenceThumb = reader.result as string
-    ui.draftParams.n = 1
+async function readReference(file: File) {
+  try {
+    ui.setReferenceImage(await createReferenceImage(file))
     ui.dockOpen = true
+  } catch (error) {
+    ui.showToast(error instanceof Error ? error.message : String(error))
   }
-  reader.readAsDataURL(file)
 }
 
 function closeMenus(event: MouseEvent) {
@@ -246,7 +271,7 @@ watch(
         <div v-else class="inspiration-row">
           <span class="field-label shrink-0">灵感起点</span>
           <button
-            v-for="template in ui.templates.slice(0, 4)"
+            v-for="template in templateStore.templates.slice(0, 4)"
             :key="template.id"
             class="inspiration-chip"
             @click="pickTemplate(template.content)"
@@ -254,13 +279,13 @@ watch(
         </div>
       </div>
 
-      <div v-if="ui.referenceThumb" class="reference-strip">
-        <img :src="ui.referenceThumb" alt="当前参考图" />
+      <div v-if="ui.referenceImage" class="reference-strip">
+        <img :src="ui.referenceImage.previewUrl" alt="当前参考图" />
         <div class="min-w-0 flex-1">
           <p class="text-[11.5px] font-medium">已加入参考图</p>
           <p class="mt-0.5 text-[10.5px] text-dim">本次将使用图片编辑模式，生成 1 张变体</p>
         </div>
-        <button class="icon-button !h-7 !w-7" title="移除参考图" aria-label="移除参考图" @click="ui.referenceThumb = undefined">
+        <button class="icon-button !h-7 !w-7" title="移除参考图" aria-label="移除参考图" @click="ui.clearReferenceImage()">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 6l12 12M18 6 6 18" /></svg>
         </button>
       </div>
@@ -316,7 +341,7 @@ watch(
           </button>
           <div v-if="showTemplates" id="dock-template-menu" class="dock-menu pop-in">
             <p class="menu-title">提示词模板</p>
-            <button v-for="template in ui.templates" :key="template.id" @click="pickTemplate(template.content)">
+            <button v-for="template in templateStore.templates" :key="template.id" @click="pickTemplate(template.content)">
               <span>{{ template.title }}</span>
               <small>{{ template.category }}</small>
               <p>{{ template.content }}</p>
@@ -344,7 +369,9 @@ watch(
 
         <template v-else>
           <span class="ml-auto hidden font-mono text-[10px] text-dim sm:inline">{{ ui.draftPrompt.length }} 字</span>
-          <span class="hidden font-mono text-[10px] text-dim sm:inline">gpt-image-2 · mock</span>
+          <span class="hidden max-w-48 truncate font-mono text-[10px] text-dim sm:inline" :title="settings.settings.api.generation.url">
+            {{ settings.settings.api.model || 'custom' }} · direct
+          </span>
         </template>
       </div>
 

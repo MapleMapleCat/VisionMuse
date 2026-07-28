@@ -2,15 +2,17 @@
 import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUiStore } from '@/stores/ui'
+import { useTemplateStore } from '@/stores/templates'
 import type { PromptTemplate } from '@/types'
 
 const ui = useUiStore()
+const templateStore = useTemplateStore()
 const router = useRouter()
 
 const filter = ref('全部')
-const categories = computed(() => ['全部', ...new Set(ui.templates.map(t => t.category))])
+const categories = computed(() => ['全部', ...new Set(templateStore.templates.map(t => t.category))])
 const shown = computed(() =>
-  filter.value === '全部' ? ui.templates : ui.templates.filter(t => t.category === filter.value),
+  filter.value === '全部' ? templateStore.templates : templateStore.templates.filter(t => t.category === filter.value),
 )
 
 // {{变量}} 高亮拆分
@@ -47,7 +49,7 @@ function confirmFill() {
   for (const [k, v] of Object.entries(fillValues.value)) {
     content = content.replaceAll(`{{${k}}}`, v.trim() || `{{${k}}}`)
   }
-  fillTarget.value.useCount++
+  void templateStore.recordUse(fillTarget.value)
   ui.draftPrompt = content
   ui.dockOpen = true
   fillTarget.value = null
@@ -62,7 +64,7 @@ function confirmFill() {
       <p class="field-label">Prompt library</p>
       <div class="mb-3 mt-1.5 flex items-end gap-3">
         <h1 class="display text-[27px] leading-none">提示词模板</h1>
-        <span class="pb-0.5 font-mono text-[10.5px] text-dim">{{ ui.templates.length }} 个</span>
+        <span class="pb-0.5 font-mono text-[10.5px] text-dim">{{ templateStore.templates.length }} 个</span>
       </div>
       <div class="flex flex-wrap gap-1.5">
         <button

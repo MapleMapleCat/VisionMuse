@@ -2,7 +2,7 @@
 // 任务卡片 = 一段胶片条：上下齿孔，中间是帧。生成中的帧显示噪点显影动画
 import { computed, onBeforeUnmount, ref } from 'vue'
 import type { GenerationTask } from '@/types'
-import { estimateCost, sizeToWH } from '@/types'
+import { sizeToWH } from '@/types'
 import { useTaskStore } from '@/stores/tasks'
 import { useGalleryStore } from '@/stores/gallery'
 import { useUiStore } from '@/stores/ui'
@@ -120,7 +120,7 @@ function openImage(id: string) {
       <span v-if="task.kind === 'edit'" class="rounded bg-amber/15 px-1.5 py-px font-mono text-[10px] text-amberhi">img2img</span>
       <span class="min-w-0 flex-1 truncate text-[12px] text-fade" :title="task.prompt">{{ task.prompt }}</span>
       <span class="shrink-0 font-mono text-[10.5px] text-dim">
-        {{ task.params.size.replace('x', '×') }} · {{ task.params.quality }} · ${{ estimateCost(task.params, task.kind).toFixed(2) }}
+        {{ task.model }} · {{ task.params.size.replace('x', '×') }} · {{ task.params.quality }} · ${{ task.estimatedCost.toFixed(2) }}
       </span>
       <button
         v-if="task.status === 'queued' || task.status === 'running'"

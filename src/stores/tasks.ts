@@ -1,108 +1,198 @@
-// 任务队列 store：模拟 gpt-image-2 的异步生成（排队 → 生成中 → 完成）
-// 预览版：setTimeout 模拟 8~18s 延迟；接真实 API 时替换 runTask 内部实现
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
-import type { GenParams, GenerationTask } from '@/types'
+import type { ApiSettings, GenParams, GenerationTask, ReferenceImage, StoredGenerationTask } from '@/types'
 import { estimateCost } from '@/types'
-import { renderMockImage } from '@/mock/mockImage'
+import { deleteTask, loadTasks, saveTask } from '@/services/database'
+import { ImageApiError, requestImages } from '@/services/imageApi'
+import { cloneForStorage } from '@/services/clone'
+import { createId } from '@/utils/ids'
 import { useGalleryStore } from './gallery'
-
-const MAX_CONCURRENT = 2
-let uid = 0
-const nextId = (p: string) => `${p}-${Date.now().toString(36)}-${++uid}`
-
-// 模拟生成耗时（预览版压短到 6~14s，真实为 30s~2min）
-const mockDuration = () => 6000 + Math.random() * 8000
+import { useSettingsStore } from './settings'
 
 export const useTaskStore = defineStore('tasks', () => {
   const tasks = ref<GenerationTask[]>([])
-  const timers = new Map<string, ReturnType<typeof setTimeout>>()
+  const controllers = new Map<string, AbortController>()
+  const initialized = ref(false)
 
   const activeCount = computed(() => tasks.value.filter(t => t.status === 'queued' || t.status === 'running').length)
   const sessionTasks = computed(() => [...tasks.value].sort((a, b) => b.createdAt - a.createdAt))
 
-  function submit(prompt: string, params: GenParams, referenceThumb?: string) {
+  function toStoredTask(task: GenerationTask): StoredGenerationTask {
+    const referenceImage = task.referenceImage
+      ? {
+          blob: task.referenceImage.blob,
+          fileName: task.referenceImage.fileName,
+          mimeType: task.referenceImage.mimeType,
+          width: task.referenceImage.width,
+          height: task.referenceImage.height,
+        }
+      : undefined
+    return { ...task, referenceImage }
+  }
+
+  function toRuntimeTask(task: StoredGenerationTask): GenerationTask {
+    return {
+      ...task,
+      referenceImage: task.referenceImage
+        ? { ...task.referenceImage, previewUrl: '' }
+        : undefined,
+    }
+  }
+
+  async function initialize() {
+    if (initialized.value) return
+    tasks.value = (await loadTasks()).map(toRuntimeTask).sort((left, right) => right.createdAt - left.createdAt)
+    for (const task of tasks.value) {
+      if (task.status === 'running') {
+        task.status = 'failed'
+        task.error = '页面在请求期间被关闭，远端执行状态未知。重试可能再次产生费用。'
+        task.finishedAt = Date.now()
+        await saveTask(toStoredTask(task))
+      } else if (task.status === 'queued') {
+        task.status = 'failed'
+        task.error = '页面刷新后任务已暂停，点击重试可重新发送请求。'
+        task.finishedAt = Date.now()
+        await saveTask(toStoredTask(task))
+      }
+    }
+    initialized.value = true
+  }
+
+  async function submit(prompt: string, params: GenParams, referenceImage?: ReferenceImage) {
+    const settingsStore = useSettingsStore()
+    if (!settingsStore.apiConfigured) throw new Error('请先在设置中填写文生图请求 URL')
+    const apiSettings = cloneForStorage(settingsStore.settings.api)
+    const { apiKey: _apiKey, ...apiConfig } = apiSettings
+    const taskReference = referenceImage
+      ? { ...referenceImage, previewUrl: '' }
+      : undefined
+    const kind = taskReference ? 'edit' : 'generate'
     const task: GenerationTask = {
-      id: nextId('task'),
-      kind: referenceThumb ? 'edit' : 'generate',
+      id: createId('task'),
+      kind,
       prompt,
       params: { ...params },
-      referenceThumb,
+      referenceImage: taskReference,
       status: 'queued',
+      requestEndpoint: kind === 'edit' ? apiSettings.edit.url : apiSettings.generation.url,
+      model: apiSettings.model || 'custom',
+      apiConfig,
+      estimatedCost: estimateCost(params, kind, settingsStore.settings.estimatedCostByQuality),
       createdAt: Date.now(),
       imageIds: [],
     }
     tasks.value.unshift(task)
+    await saveTask(toStoredTask(task))
     pump()
     return task.id
   }
 
   function pump() {
+    const maximumConcurrent = useSettingsStore().settings.api.maxConcurrent
     const running = tasks.value.filter(t => t.status === 'running').length
-    if (running >= MAX_CONCURRENT) return
-    // 最早排队的先跑
-    const next = [...tasks.value].reverse().find(t => t.status === 'queued')
-    if (!next) return
-    runTask(next)
-    pump()
+    const availableSlots = Math.max(0, maximumConcurrent - running)
+    const queuedTasks = [...tasks.value].reverse().filter(task => task.status === 'queued').slice(0, availableSlots)
+    for (const queuedTask of queuedTasks) void runTask(queuedTask)
   }
 
-  function runTask(task: GenerationTask) {
+  async function runTask(task: GenerationTask) {
+    const controller = new AbortController()
+    controllers.set(task.id, controller)
+    const createdImageIds: string[] = []
     task.status = 'running'
     task.startedAt = Date.now()
-    const timer = setTimeout(() => {
-      timers.delete(task.id)
-      // 小概率模拟失败，演示重试 UI
-      if (Math.random() < 0.06) {
-        task.status = 'failed'
-        task.error = '生成服务返回 429：请求过于频繁，请稍后重试'
-        task.finishedAt = Date.now()
-        pump()
-        return
-      }
+    task.finishedAt = undefined
+    task.error = undefined
+    task.errorStatus = undefined
+
+    try {
+      await saveTask(toStoredTask(task))
+      if (controller.signal.aborted) throw controller.signal.reason
+      const settingsStore = useSettingsStore()
+      const apiSettings: ApiSettings = { ...cloneForStorage(task.apiConfig), apiKey: settingsStore.settings.api.apiKey }
+      const result = await requestImages({
+        settings: apiSettings,
+        prompt: task.prompt,
+        params: task.params,
+        referenceImage: task.referenceImage,
+        signal: controller.signal,
+      })
+      if (controller.signal.aborted) throw controller.signal.reason
+      task.usage = result.usage
       const gallery = useGalleryStore()
-      const ids: string[] = []
-      for (let i = 0; i < task.params.n; i++) {
-        const rec = gallery.addImage(task, renderMockImage(task.prompt, task.params.size, i + Date.now() % 97), i)
-        ids.push(rec.id)
+      for (const [index, generatedImage] of result.images.entries()) {
+        if (controller.signal.aborted) throw controller.signal.reason
+        const image = await gallery.addGeneratedImage(task, generatedImage, index, settingsStore.settings.autoDownloadOriginals)
+        createdImageIds.push(image.id)
+        task.imageIds.push(image.id)
+        await saveTask(toStoredTask(task))
+        if (controller.signal.aborted) throw controller.signal.reason
       }
-      task.imageIds = ids
+      task.referenceImage = undefined
       task.status = 'done'
       task.finishedAt = Date.now()
+      await saveTask(toStoredTask(task))
+    } catch (error) {
+      if (controller.signal.aborted) {
+        if (createdImageIds.length) await useGalleryStore().purge(createdImageIds)
+        task.imageIds = task.imageIds.filter(imageId => !createdImageIds.includes(imageId))
+        task.referenceImage = undefined
+        await saveTask(toStoredTask(task))
+      } else {
+        task.status = 'failed'
+        task.error = error instanceof Error ? error.message : String(error)
+        task.errorStatus = error instanceof ImageApiError ? error.status : undefined
+        task.finishedAt = Date.now()
+        await saveTask(toStoredTask(task))
+      }
+    } finally {
+      controllers.delete(task.id)
       pump()
-    }, mockDuration())
-    timers.set(task.id, timer)
+    }
   }
 
-  function cancel(taskId: string) {
+  async function cancel(taskId: string) {
     const task = tasks.value.find(t => t.id === taskId)
     if (!task || (task.status !== 'queued' && task.status !== 'running')) return
-    const timer = timers.get(taskId)
-    if (timer) clearTimeout(timer)
-    timers.delete(taskId)
     task.status = 'canceled'
     task.finishedAt = Date.now()
+    task.referenceImage = undefined
+    controllers.get(taskId)?.abort(new DOMException('用户取消请求', 'AbortError'))
+    await saveTask(toStoredTask(task))
     pump()
   }
 
-  function retry(taskId: string) {
+  async function retry(taskId: string) {
     const task = tasks.value.find(t => t.id === taskId)
     if (!task || task.status !== 'failed') return
     task.status = 'queued'
     task.error = undefined
     task.startedAt = undefined
     task.finishedAt = undefined
+    task.imageIds = []
+    await saveTask(toStoredTask(task))
     pump()
   }
 
-  function remove(taskId: string) {
-    cancel(taskId)
+  async function remove(taskId: string) {
+    await cancel(taskId)
+    const task = tasks.value.find(item => item.id === taskId)
+    if (task?.referenceImage?.previewUrl.startsWith('blob:')) URL.revokeObjectURL(task.referenceImage.previewUrl)
     tasks.value = tasks.value.filter(t => t.id !== taskId)
+    await deleteTask(taskId)
   }
 
   const sessionCost = computed(() =>
-    tasks.value.filter(t => t.status === 'done').reduce((s, t) => s + estimateCost(t.params, t.kind), 0),
+    tasks.value.filter(t => t.status === 'done').reduce((sum, task) => sum + task.estimatedCost, 0),
   )
 
-  return { tasks, sessionTasks, activeCount, sessionCost, submit, cancel, retry, remove }
+  const todayCost = computed(() => {
+    const startOfDay = new Date()
+    startOfDay.setHours(0, 0, 0, 0)
+    return tasks.value
+      .filter(task => task.status === 'done' && task.createdAt >= startOfDay.getTime())
+      .reduce((sum, task) => sum + task.estimatedCost, 0)
+  })
+
+  return { tasks, sessionTasks, activeCount, sessionCost, todayCost, initialized, initialize, submit, cancel, retry, remove }
 })

@@ -4,10 +4,13 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useGalleryStore } from '@/stores/gallery'
 import { useUiStore } from '@/stores/ui'
+import { useSettingsStore } from '@/stores/settings'
 import { estimateCost } from '@/types'
+import { downloadBlob, getImageFileName } from '@/services/download'
 
 const gallery = useGalleryStore()
 const ui = useUiStore()
+const settings = useSettingsStore()
 const router = useRouter()
 
 const rec = computed(() => (ui.viewerId ? gallery.byId(ui.viewerId) : undefined))
@@ -103,17 +106,17 @@ function copyPrompt() {
   ui.showToast('提示词已复制')
 }
 
-function addTag() {
+async function addTag() {
   if (!rec.value || !tagInput.value.trim()) return
   const tags = [...rec.value.tags]
   if (!tags.includes(tagInput.value.trim())) tags.push(tagInput.value.trim())
-  gallery.setTags(rec.value.id, tags)
+  await gallery.setTags(rec.value.id, tags)
   tagInput.value = ''
 }
 
-function removeTag(t: string) {
+async function removeTag(t: string) {
   if (!rec.value) return
-  gallery.setTags(rec.value.id, rec.value.tags.filter(x => x !== t))
+  await gallery.setTags(rec.value.id, rec.value.tags.filter(x => x !== t))
 }
 
 function doRemix() {
@@ -132,21 +135,37 @@ function doReference() {
 
 function doDownload() {
   if (!rec.value) return
-  const a = document.createElement('a')
-  a.href = rec.value.dataUrl
-  a.download = `pic-${rec.value.id}.webp`
-  a.click()
+  downloadBlob(rec.value.originalBlob, getImageFileName(rec.value))
 }
 
-function doDelete() {
+async function doDelete() {
   if (!rec.value) return
-  gallery.softDelete([rec.value.id])
-  ui.showToast('已移入回收站')
+  const imageId = rec.value.id
+  if (rec.value.deletedAt) {
+    if (!window.confirm('将永久删除这张图片，此操作无法撤销。继续吗？')) return
+    await gallery.purge([imageId])
+    ui.showToast('图片已永久删除')
+  } else {
+    await gallery.softDelete([imageId])
+    ui.showToast('已移入回收站')
+  }
   const next = ui.viewerList[idx.value + 1] ?? ui.viewerList[idx.value - 1]
   if (next) {
-    ui.viewerList = ui.viewerList.filter(id => id !== rec.value!.id)
+    ui.viewerList = ui.viewerList.filter(id => id !== imageId)
     ui.viewerId = next
   } else ui.closeViewer()
+}
+
+async function doRestore() {
+  if (!rec.value) return
+  await gallery.restore([rec.value.id])
+  ui.showToast('图片已恢复到图库')
+  ui.closeViewer()
+}
+
+function formatBytes(bytes: number) {
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`
 }
 
 const dateText = computed(() => {
@@ -195,17 +214,18 @@ const dateText = computed(() => {
           <div class="space-y-4 px-4 py-4">
             <!-- 操作行 -->
             <div class="flex flex-wrap gap-2">
-              <button class="btn btn-amber text-[12px]" @click="doRemix">↻ Remix</button>
-              <button class="btn text-[12px]" @click="doReference">用作参考图</button>
+              <button v-if="!rec.deletedAt" class="btn btn-amber text-[12px]" @click="doRemix">↻ Remix</button>
+              <button v-if="!rec.deletedAt" class="btn text-[12px]" @click="doReference">用作参考图</button>
               <button class="btn text-[12px]" @click="doDownload">下载</button>
-              <button class="btn text-[12px]" @click="ui.saveAsTemplate(rec)">存为模板</button>
+              <button v-if="!rec.deletedAt" class="btn text-[12px]" @click="ui.saveAsTemplate(rec)">存为模板</button>
               <button
                 class="btn text-[12px]"
                 :class="{ 'text-amber': rec.favorite }"
                 :aria-pressed="rec.favorite"
                 @click="gallery.toggleFavorite(rec.id)"
               >{{ rec.favorite ? '♥ 已收藏' : '♡ 收藏' }}</button>
-              <button class="btn btn-danger ml-auto text-[12px]" @click="doDelete">删除</button>
+              <button v-if="rec.deletedAt" class="btn ml-auto text-[12px]" @click="doRestore">恢复</button>
+              <button class="btn btn-danger text-[12px]" :class="{ 'ml-auto': !rec.deletedAt }" @click="doDelete">{{ rec.deletedAt ? '永久删除' : '删除' }}</button>
             </div>
 
             <!-- 提示词 -->
@@ -223,12 +243,14 @@ const dateText = computed(() => {
             <div>
               <div class="field-label mb-1.5">生成参数</div>
               <div class="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-line bg-line shadow-card">
-                <div class="bg-well px-3 py-2"><span class="text-[10.5px] text-dim">模型</span><div class="font-mono text-[12px]">gpt-image-2</div></div>
+                <div class="bg-well px-3 py-2"><span class="text-[10.5px] text-dim">模型</span><div class="truncate font-mono text-[12px]" :title="rec.model">{{ rec.model }}</div></div>
                 <div class="bg-well px-3 py-2"><span class="text-[10.5px] text-dim">类型</span><div class="font-mono text-[12px]">{{ rec.kind === 'edit' ? 'img2img' : 'text2img' }}</div></div>
                 <div class="bg-well px-3 py-2"><span class="text-[10.5px] text-dim">尺寸</span><div class="font-mono text-[12px]">{{ rec.width }} × {{ rec.height }}</div></div>
                 <div class="bg-well px-3 py-2"><span class="text-[10.5px] text-dim">质量</span><div class="font-mono text-[12px]">{{ rec.params.quality }}</div></div>
                 <div class="bg-well px-3 py-2"><span class="text-[10.5px] text-dim">时间</span><div class="font-mono text-[12px]">{{ dateText }}</div></div>
-                <div class="bg-well px-3 py-2"><span class="text-[10.5px] text-dim">成本估算</span><div class="font-mono text-[12px] text-amberhi">≈ ${{ (estimateCost(rec.params, rec.kind) / rec.params.n).toFixed(2) }}</div></div>
+                <div class="bg-well px-3 py-2"><span class="text-[10.5px] text-dim">格式 / 大小</span><div class="font-mono text-[12px]">{{ rec.fileExtension }} · {{ formatBytes(rec.byteSize) }}</div></div>
+                <div class="bg-well px-3 py-2"><span class="text-[10.5px] text-dim">成本估算</span><div class="font-mono text-[12px] text-amberhi">≈ ${{ (estimateCost(rec.params, rec.kind, settings.settings.estimatedCostByQuality) / rec.params.n).toFixed(2) }}</div></div>
+                <div class="col-span-2 bg-well px-3 py-2"><span class="text-[10.5px] text-dim">请求地址</span><div class="truncate font-mono text-[11px]" :title="rec.requestEndpoint">{{ rec.requestEndpoint }}</div></div>
               </div>
             </div>
 
