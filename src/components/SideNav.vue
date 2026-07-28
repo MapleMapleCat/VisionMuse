@@ -38,12 +38,20 @@ function openComposer() {
 
 <template>
   <nav class="side-nav" aria-label="主导航">
-    <router-link to="/gallery" class="brand" title="显影台首页" aria-label="显影台首页">
-      <span class="brand-mark">显</span>
-      <span class="brand-name">Atelier</span>
+    <router-link to="/gallery" class="brand" title="VisionMuse 首页" aria-label="VisionMuse 首页">
+      <span class="brand-mark" aria-hidden="true">
+        <svg class="brand-icon" viewBox="0 0 32 32" fill="none">
+          <path class="brand-icon-prism" d="M15.7 6.7 24 22.8H7.4L15.7 6.7Z" />
+          <path class="brand-icon-light-in" d="M3.2 13.9h8.2" />
+          <path class="brand-icon-light-out brand-icon-light-out-top" d="m21 16.9 7.6-3.4" />
+          <path class="brand-icon-light-out brand-icon-light-out-middle" d="m22.3 18.9 6.6-.2" />
+          <path class="brand-icon-light-out brand-icon-light-out-bottom" d="m23.4 20.9 5.3 2.6" />
+        </svg>
+      </span>
+      <span class="brand-name">VisionMuse</span>
     </router-link>
 
-    <button class="compose-action" title="打开创作浮窗" aria-label="打开创作浮窗" aria-controls="atelier-create-panel" @click="openComposer">
+    <button class="compose-action" title="打开创作浮窗" aria-label="打开创作浮窗" aria-controls="visionmuse-create-panel" @click="openComposer">
       <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7">
         <path d="M12 3c.7 4.7 3.3 7.3 8 8-4.7.7-7.3 3.3-8 8-.7-4.7-3.3-7.3-8-8 4.7-.7 7.3-3.3 8-8Z" />
       </svg>
@@ -97,11 +105,32 @@ function openComposer() {
   justify-content: center;
   border: 1px solid var(--color-paper);
   border-radius: 50%;
-  font-family: var(--font-serif);
-  font-size: 17px;
   transition: background 0.25s, color 0.25s, transform 0.3s var(--ease-out-soft);
 }
-.brand:hover .brand-mark { background: var(--color-paper); color: var(--color-well); transform: rotate(-7deg); }
+.brand-icon { width: 27px; height: 27px; overflow: visible; }
+.brand-icon-prism,
+.brand-icon-light-in,
+.brand-icon-light-out {
+  stroke: currentColor;
+  stroke-width: 1.35;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.brand-icon-prism {
+  fill: color-mix(in srgb, var(--color-accentsoft) 52%, transparent);
+  transition: fill 0.25s;
+}
+.brand-icon-light-out {
+  stroke: var(--color-accent);
+  transition: transform 0.35s var(--ease-spring), stroke 0.25s;
+  transform-box: fill-box;
+  transform-origin: left center;
+}
+.brand:hover .brand-mark { background: var(--color-paper); color: var(--color-well); transform: translateY(-2px); }
+.brand:hover .brand-icon-prism { fill: color-mix(in srgb, var(--color-accent) 32%, transparent); }
+.brand:hover .brand-icon-light-out { stroke: var(--color-accentsoft); }
+.brand:hover .brand-icon-light-out-top { transform: rotate(-4deg); }
+.brand:hover .brand-icon-light-out-bottom { transform: rotate(4deg); }
 .brand-name { font-family: var(--font-serif); font-size: 9px; letter-spacing: 0.11em; text-transform: uppercase; }
 
 .compose-action {
@@ -184,7 +213,8 @@ function openComposer() {
     backdrop-filter: blur(18px);
   }
   .brand { flex-direction: row; gap: 7px; margin-right: 9px; }
-  .brand-mark { height: 34px; width: 34px; font-size: 15px; }
+  .brand-mark { height: 34px; width: 34px; }
+  .brand-icon { width: 24px; height: 24px; }
   .brand-name { display: none; }
   .compose-action { width: 50px; height: 42px; flex-direction: row; justify-content: center; margin: 0 8px 0 0; padding: 0; }
   .compose-action span { display: none; }

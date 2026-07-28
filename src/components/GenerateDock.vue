@@ -196,11 +196,11 @@ watch(
 
 <template>
   <div class="generate-dock" :class="{ 'is-open': ui.dockOpen }">
-    <section id="atelier-create-panel" class="dock-surface">
+    <section id="visionmuse-create-panel" class="dock-surface">
       <div v-if="ui.dockOpen" class="dock-expand">
         <header class="dock-heading">
           <div>
-            <p class="field-label">Atelier create</p>
+            <p class="field-label">VisionMuse create</p>
             <div class="mt-1 flex items-center gap-2.5">
               <h2 class="display text-[20px] leading-none">创作浮窗</h2>
               <span v-if="tasks.activeCount" class="status-pill">
@@ -213,7 +213,7 @@ watch(
             <span v-if="tasks.sessionCost" class="hidden font-mono text-[10.5px] text-dim sm:inline">
               本次完成 ≈ ${{ tasks.sessionCost.toFixed(2) }}
             </span>
-            <button class="icon-button" title="收起创作浮窗" aria-label="收起创作浮窗" aria-controls="atelier-create-panel" :aria-expanded="ui.dockOpen" @click="ui.dockOpen = false">
+            <button class="icon-button" title="收起创作浮窗" aria-label="收起创作浮窗" aria-controls="visionmuse-create-panel" :aria-expanded="ui.dockOpen" @click="ui.dockOpen = false">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
                 <path d="m6 9 6 6 6-6" />
               </svg>
@@ -311,7 +311,7 @@ watch(
           class="parameter-summary"
           title="展开生成参数"
           aria-label="展开生成参数"
-          aria-controls="atelier-create-panel"
+          aria-controls="visionmuse-create-panel"
           :aria-expanded="ui.dockOpen"
           @click="openDock"
         >
@@ -362,7 +362,7 @@ watch(
           </div>
         </div>
 
-        <button v-if="!ui.dockOpen" class="tool-button ml-auto" aria-label="展开创作台" aria-controls="atelier-create-panel" :aria-expanded="ui.dockOpen" @click="openDock">
+        <button v-if="!ui.dockOpen" class="tool-button ml-auto" aria-label="展开创作台" aria-controls="visionmuse-create-panel" :aria-expanded="ui.dockOpen" @click="openDock">
           <span>展开创作台</span>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m6 15 6-6 6 6" /></svg>
         </button>

@@ -1,7 +1,7 @@
 @import "tailwindcss";
 
 @theme {
-  /* Atelier 工作室：亚麻暖灰 + 墨黑 + 深松石 */
+  /* VisionMuse 工作室：亚麻暖灰 + 墨黑 + 深松石 */
   --color-ink: #EFEBE3;          /* 页面底：亚麻暖灰 */
   --color-well: #FBF9F4;         /* 卡片/输入底：奶白 */
   --color-panel: #FBF9F4;

@@ -315,7 +315,7 @@ onBeforeUnmount(() => {
         <p class="mt-3 text-[10.5px] leading-relaxed text-red/75">完整备份包含图片、任务、模板、设置以及 API Key，请像保管密钥一样保管备份文件。</p>
       </section>
 
-      <p class="pb-4 text-center font-mono text-[10.5px] text-dim">显影台 · 浏览器直连生产版 · 数据仅保存在当前浏览器</p>
+      <p class="pb-4 text-center font-mono text-[10.5px] text-dim">VisionMuse · 浏览器直连生产版 · 数据仅保存在当前浏览器</p>
     </div>
   </div>
 </template>
