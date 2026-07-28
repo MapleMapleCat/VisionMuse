@@ -1,12 +1,6 @@
-export type ImageAspectRatio = '1:1' | '3:2' | '2:3'
-export type ImageResolution = '1K' | '2K'
-export type ImageSize =
-  | '1024x1024'
-  | '1536x1024'
-  | '1024x1536'
-  | '2048x2048'
-  | '2016x1344'
-  | '1344x2016'
+export type ImageAspectRatio = `${number}:${number}`
+export type ImageResolution = '1K' | '2K' | '4K'
+export type ImageSize = `${number}x${number}`
 export type ImageQuality = 'low' | 'medium' | 'high'
 export type ImageFormat = 'png' | 'webp' | 'jpeg'
 export type TaskStatus = 'queued' | 'running' | 'done' | 'failed' | 'canceled'
@@ -141,13 +135,15 @@ export interface PromptTemplate {
 
 export const ASPECT_RATIO_OPTIONS: { value: ImageAspectRatio; label: string }[] = [
   { value: '1:1', label: '1:1' },
+  { value: '4:3', label: '4:3' },
   { value: '3:2', label: '3:2' },
-  { value: '2:3', label: '2:3' },
+  { value: '16:9', label: '16:9' },
 ]
 
 export const RESOLUTION_OPTIONS: { value: ImageResolution; label: string }[] = [
   { value: '1K', label: '1K' },
   { value: '2K', label: '2K' },
+  { value: '4K', label: '4K' },
 ]
 
 export const SIZE_OPTIONS: {
@@ -157,27 +153,100 @@ export const SIZE_OPTIONS: {
   resolution: ImageResolution
 }[] = [
   { value: '1024x1024', label: '1024 × 1024', aspectRatio: '1:1', resolution: '1K' },
+  { value: '1365x1024', label: '1365 × 1024', aspectRatio: '4:3', resolution: '1K' },
+  { value: '1024x1365', label: '1024 × 1365', aspectRatio: '3:4', resolution: '1K' },
   { value: '1536x1024', label: '1536 × 1024', aspectRatio: '3:2', resolution: '1K' },
   { value: '1024x1536', label: '1024 × 1536', aspectRatio: '2:3', resolution: '1K' },
+  { value: '1820x1024', label: '1820 × 1024', aspectRatio: '16:9', resolution: '1K' },
+  { value: '1024x1820', label: '1024 × 1820', aspectRatio: '9:16', resolution: '1K' },
   { value: '2048x2048', label: '2048 × 2048', aspectRatio: '1:1', resolution: '2K' },
+  { value: '2048x1536', label: '2048 × 1536', aspectRatio: '4:3', resolution: '2K' },
+  { value: '1536x2048', label: '1536 × 2048', aspectRatio: '3:4', resolution: '2K' },
   { value: '2016x1344', label: '2016 × 1344', aspectRatio: '3:2', resolution: '2K' },
   { value: '1344x2016', label: '1344 × 2016', aspectRatio: '2:3', resolution: '2K' },
+  { value: '2048x1152', label: '2048 × 1152', aspectRatio: '16:9', resolution: '2K' },
+  { value: '1152x2048', label: '1152 × 2048', aspectRatio: '9:16', resolution: '2K' },
+  { value: '4096x4096', label: '4096 × 4096', aspectRatio: '1:1', resolution: '4K' },
+  { value: '4096x3072', label: '4096 × 3072', aspectRatio: '4:3', resolution: '4K' },
+  { value: '3072x4096', label: '3072 × 4096', aspectRatio: '3:4', resolution: '4K' },
+  { value: '4096x2731', label: '4096 × 2731', aspectRatio: '3:2', resolution: '4K' },
+  { value: '2731x4096', label: '2731 × 4096', aspectRatio: '2:3', resolution: '4K' },
+  { value: '4096x2304', label: '4096 × 2304', aspectRatio: '16:9', resolution: '4K' },
+  { value: '2304x4096', label: '2304 × 4096', aspectRatio: '9:16', resolution: '4K' },
 ]
 
 export function getImageSize(aspectRatio: ImageAspectRatio, resolution: ImageResolution): ImageSize {
   const matchingOption = SIZE_OPTIONS.find(option =>
     option.aspectRatio === aspectRatio && option.resolution === resolution,
   )
-  if (!matchingOption) throw new Error(`不支持的图片尺寸组合：${aspectRatio} ${resolution}`)
-  return matchingOption.value
+  if (matchingOption) return matchingOption.value
+
+  const parsedAspectRatio = parseImageAspectRatio(aspectRatio)
+  if (!parsedAspectRatio) throw new Error(`不支持的图片比例：${aspectRatio}`)
+
+  const maximumDimensionByResolution: Record<ImageResolution, number> = {
+    '1K': 1024,
+    '2K': 2048,
+    '4K': 4096,
+  }
+  const maximumDimension = maximumDimensionByResolution[resolution]
+  const dimensionMultiplier = Math.max(
+    1,
+    Math.floor(maximumDimension / Math.max(parsedAspectRatio.width, parsedAspectRatio.height)),
+  )
+  const width = parsedAspectRatio.width * dimensionMultiplier
+  const height = parsedAspectRatio.height * dimensionMultiplier
+  return `${width}x${height}`
 }
 
 export function getImageAspectRatio(size: ImageSize): ImageAspectRatio {
-  return SIZE_OPTIONS.find(option => option.value === size)?.aspectRatio ?? '1:1'
+  const matchingOption = SIZE_OPTIONS.find(option => option.value === size)
+  if (matchingOption) return matchingOption.aspectRatio
+
+  const { w: width, h: height } = sizeToWH(size)
+  if (!width || !height) return '1:1'
+  const divisor = greatestCommonDivisor(width, height)
+  return `${width / divisor}:${height / divisor}`
 }
 
 export function getImageResolution(size: ImageSize): ImageResolution {
-  return SIZE_OPTIONS.find(option => option.value === size)?.resolution ?? '1K'
+  const matchingOption = SIZE_OPTIONS.find(option => option.value === size)
+  if (matchingOption) return matchingOption.resolution
+
+  const { w: width, h: height } = sizeToWH(size)
+  const maximumDimension = Math.max(width, height)
+  if (maximumDimension > 2048) return '4K'
+  if (maximumDimension > 1024) return '2K'
+  return '1K'
+}
+
+function greatestCommonDivisor(firstValue: number, secondValue: number): number {
+  let currentValue = Math.abs(firstValue)
+  let remainingValue = Math.abs(secondValue)
+  while (remainingValue) {
+    const nextRemainder = currentValue % remainingValue
+    currentValue = remainingValue
+    remainingValue = nextRemainder
+  }
+  return currentValue || 1
+}
+
+export function parseImageAspectRatio(value: string): { width: number; height: number; normalized: ImageAspectRatio } | null {
+  const match = value.trim().match(/^(\d{1,3})\s*[:：]\s*(\d{1,3})$/)
+  if (!match) return null
+
+  const width = Number(match[1])
+  const height = Number(match[2])
+  if (width < 1 || height < 1) return null
+
+  const divisor = greatestCommonDivisor(width, height)
+  const normalizedWidth = width / divisor
+  const normalizedHeight = height / divisor
+  return {
+    width: normalizedWidth,
+    height: normalizedHeight,
+    normalized: `${normalizedWidth}:${normalizedHeight}`,
+  }
 }
 
 export const QUALITY_OPTIONS: { value: ImageQuality; label: string; cost: number }[] = [

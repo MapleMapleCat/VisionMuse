@@ -16,6 +16,7 @@ import {
   getImageAspectRatio,
   getImageResolution,
   getImageSize,
+  parseImageAspectRatio,
   type GenerationTask,
   type ImageAspectRatio,
   type ImageRecord,
@@ -30,8 +31,16 @@ const templateStore = useTemplateStore()
 const route = useRoute()
 
 const promptEl = ref<HTMLTextAreaElement>()
+const customAspectRatioEl = ref<HTMLInputElement>()
 const showTemplates = ref(false)
 const showHistory = ref(false)
+const quantityExpanded = ref(false)
+const quantityHoveredPosition = ref<number | null>(null)
+const quantityDragging = ref(false)
+const quantityChangeDirection = ref<'increase' | 'decrease'>('increase')
+const customAspectRatioOpen = ref(false)
+const customAspectRatioInput = ref('')
+const customAspectRatioInvalid = ref(false)
 const now = ref(Date.now())
 const submitting = ref(false)
 const seenTerminalTasks = new Set<string>()
@@ -58,13 +67,46 @@ const recentPrompts = computed(() => {
 const imageAspectRatio = computed(() => getImageAspectRatio(ui.draftParams.size))
 const imageResolution = computed(() => getImageResolution(ui.draftParams.size))
 const qualityLabel = computed(() => QUALITY_OPTIONS.find(option => option.value === ui.draftParams.quality)?.label ?? '中')
+const isCommonAspectRatio = computed(() => ASPECT_RATIO_OPTIONS.some(option => option.value === imageAspectRatio.value))
+const quantityRangeStyle = computed(() => {
+  const sliderPositions = [
+    '18px',
+    'calc(33.333% + 6px)',
+    'calc(66.667% - 6px)',
+    'calc(100% - 18px)',
+  ]
+
+  return {
+    '--quantity-progress': sliderPositions[ui.draftParams.n - 1],
+  }
+})
 
 function setImageAspectRatio(aspectRatio: ImageAspectRatio) {
   ui.draftParams.size = getImageSize(aspectRatio, imageResolution.value)
+  customAspectRatioOpen.value = false
+  customAspectRatioInvalid.value = false
+}
+
+function openCustomAspectRatio() {
+  customAspectRatioOpen.value = true
+  customAspectRatioInvalid.value = false
+  if (!isCommonAspectRatio.value) customAspectRatioInput.value = imageAspectRatio.value
+  nextTick(() => customAspectRatioEl.value?.focus())
+}
+
+function applyCustomAspectRatio() {
+  const parsedAspectRatio = parseImageAspectRatio(customAspectRatioInput.value)
+  customAspectRatioInvalid.value = !parsedAspectRatio
+  if (!parsedAspectRatio) return
+  customAspectRatioInput.value = parsedAspectRatio.normalized
+  ui.draftParams.size = getImageSize(parsedAspectRatio.normalized, imageResolution.value)
 }
 
 function setImageResolution(resolution: ImageResolution) {
-  ui.draftParams.size = getImageSize(imageAspectRatio.value, resolution)
+  const customAspectRatio = customAspectRatioOpen.value
+    ? parseImageAspectRatio(customAspectRatioInput.value)?.normalized
+    : undefined
+  ui.draftParams.size = getImageSize(customAspectRatio ?? imageAspectRatio.value, resolution)
 }
 
 async function submit() {
@@ -146,7 +188,58 @@ function closeMenus(event: MouseEvent) {
   if (!target.closest('[data-dock-menu]')) {
     showTemplates.value = false
     showHistory.value = false
+    quantityExpanded.value = false
   }
+}
+
+function toggleQuantityEditor() {
+  quantityExpanded.value = !quantityExpanded.value
+  showTemplates.value = false
+  showHistory.value = false
+}
+
+function updateQuantitySliderHover(event: PointerEvent) {
+  const sliderElement = event.currentTarget as HTMLInputElement
+  const sliderBounds = sliderElement.getBoundingClientRect()
+  const sliderThumbRadius = 18
+  const availableTrackWidth = sliderBounds.width - sliderThumbRadius * 2
+  const pointerOffsetX = event.clientX - sliderBounds.left
+  const pointerOffsetY = event.clientY - sliderBounds.top
+  const trackCenterY = sliderBounds.height / 2
+
+  let closestPosition: number | null = null
+  let closestDistance = Number.POSITIVE_INFINITY
+
+  for (let position = 1; position <= 4; position += 1) {
+    const positionCenterX = sliderThumbRadius + availableTrackWidth * ((position - 1) / 3)
+    const horizontalDistance = pointerOffsetX - positionCenterX
+    const verticalDistance = pointerOffsetY - trackCenterY
+    const pointerDistance = Math.hypot(horizontalDistance, verticalDistance)
+    const hoverRadius = position === ui.draftParams.n ? sliderThumbRadius + 2 : 10
+
+    if (pointerDistance <= hoverRadius && pointerDistance < closestDistance) {
+      closestPosition = position
+      closestDistance = pointerDistance
+    }
+  }
+
+  quantityHoveredPosition.value = closestPosition
+}
+
+function startQuantitySliderDrag(event: PointerEvent) {
+  quantityDragging.value = true
+  updateQuantitySliderHover(event)
+}
+
+function finishQuantitySliderDrag(event?: PointerEvent) {
+  quantityDragging.value = false
+
+  if (event) {
+    updateQuantitySliderHover(event)
+    return
+  }
+
+  quantityHoveredPosition.value = null
 }
 
 function elapsed(task: GenerationTask) {
@@ -186,6 +279,17 @@ onBeforeUnmount(() => {
 })
 
 watch(
+  () => ui.draftParams.n,
+  (nextQuantity, previousQuantity) => {
+    if (nextQuantity === previousQuantity) return
+    quantityChangeDirection.value = nextQuantity > previousQuantity
+      ? 'increase'
+      : 'decrease'
+  },
+  { flush: 'sync' },
+)
+
+watch(
   () => tasks.tasks.map(task => `${task.id}:${task.status}`).join('|'),
   () => {
     for (const task of tasks.tasks) {
@@ -199,12 +303,23 @@ watch(
 )
 
 watch(
+  () => ui.dockOpen,
+  isOpen => {
+    if (isOpen) return
+    showTemplates.value = false
+    showHistory.value = false
+    quantityExpanded.value = false
+  },
+)
+
+watch(
   () => route.path,
   path => {
     if (path === '/gallery') return
     ui.dockOpen = false
     showTemplates.value = false
     showHistory.value = false
+    quantityExpanded.value = false
   },
 )
 </script>
@@ -350,7 +465,7 @@ watch(
         </label>
 
         <div class="relative" data-dock-menu>
-          <button class="tool-button" aria-label="打开提示词模板" aria-controls="dock-template-menu" :aria-expanded="showTemplates" @click="showTemplates = !showTemplates; showHistory = false">
+          <button class="tool-button" aria-label="打开提示词模板" aria-controls="dock-template-menu" :aria-expanded="showTemplates" @click="showTemplates = !showTemplates; showHistory = false; quantityExpanded = false">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M7 4h10v16H7zM4 7h3m10 0h3M4 12h3m10 0h3M4 17h3m10 0h3" /></svg>
             <span>模板</span>
           </button>
@@ -365,7 +480,7 @@ watch(
         </div>
 
         <div class="relative" data-dock-menu>
-          <button class="tool-button" aria-label="打开最近提示词" aria-controls="dock-history-menu" :aria-expanded="showHistory" @click="showHistory = !showHistory; showTemplates = false">
+          <button class="tool-button" aria-label="打开最近提示词" aria-controls="dock-history-menu" :aria-expanded="showHistory" @click="showHistory = !showHistory; showTemplates = false; quantityExpanded = false">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 8v5l3 2" /><circle cx="12" cy="12" r="8" /></svg>
             <span>最近</span>
           </button>
@@ -401,6 +516,29 @@ watch(
               :aria-pressed="imageAspectRatio === option.value"
               @click="setImageAspectRatio(option.value)"
             >{{ option.label }}</button>
+            <button
+              v-if="!customAspectRatioOpen"
+              :class="{ on: customAspectRatioOpen || !isCommonAspectRatio }"
+              :aria-pressed="customAspectRatioOpen || !isCommonAspectRatio"
+              @click="openCustomAspectRatio"
+            >自定义</button>
+            <input
+              v-else
+              ref="customAspectRatioEl"
+              v-model="customAspectRatioInput"
+              class="custom-ratio-input"
+              type="text"
+              inputmode="numeric"
+              maxlength="7"
+              placeholder="21:9"
+              title="输入自定义宽高比，例如 21:9"
+              aria-label="自定义图片比例，格式为宽比高"
+              :aria-invalid="customAspectRatioInvalid"
+              :class="{ invalid: customAspectRatioInvalid }"
+              @input="applyCustomAspectRatio"
+              @blur="applyCustomAspectRatio"
+              @keydown.enter.prevent="applyCustomAspectRatio"
+            />
           </div>
         </div>
         <div class="parameter-group resolution-group">
@@ -428,12 +566,89 @@ watch(
             >{{ option.label }}</button>
           </div>
         </div>
-        <div class="parameter-group">
+        <div class="parameter-group quantity-group" data-dock-menu>
           <span class="field-label">数量</span>
-          <div class="seg" role="group" aria-label="生成数量">
-            <button v-for="count in [1, 2, 3, 4]" :key="count" :class="{ on: ui.draftParams.n === count }" :aria-pressed="ui.draftParams.n === count" @click="ui.draftParams.n = count">
-              {{ count }}
+          <div class="quantity-control" :class="{ 'is-expanded': quantityExpanded }">
+            <button
+              class="quantity-trigger"
+              aria-label="修改生成数量"
+              aria-controls="quantity-editor"
+              :aria-expanded="quantityExpanded"
+              @click="toggleQuantityEditor"
+            >
+              <span class="quantity-compact-value">
+                <span class="quantity-number-window">
+                  <Transition :name="`quantity-wheel-${quantityChangeDirection}`">
+                    <strong :key="ui.draftParams.n">{{ ui.draftParams.n }}</strong>
+                  </Transition>
+                </span>
+                张
+              </span>
+              <span class="quantity-expanded-heading">
+                <span>数量</span>
+                <span class="quantity-expanded-value">
+                  <span class="quantity-number-window">
+                    <Transition :name="`quantity-wheel-${quantityChangeDirection}`">
+                      <strong :key="ui.draftParams.n">{{ ui.draftParams.n }}</strong>
+                    </Transition>
+                  </span>
+                  张
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                    <circle cx="12" cy="12" r="8" />
+                    <path d="m8.5 12 2.2 2.2 4.8-5" />
+                  </svg>
+                </span>
+              </span>
             </button>
+
+            <div id="quantity-editor" class="quantity-editor" :aria-hidden="!quantityExpanded">
+              <div
+                class="quantity-slider-wrap"
+                :class="{ 'is-dragging': quantityDragging }"
+                :style="quantityRangeStyle"
+              >
+                <div class="quantity-slider-rail" aria-hidden="true">
+                  <div class="quantity-slider-fill" />
+                  <div class="quantity-dots">
+                    <i
+                      v-for="count in [1, 2, 3, 4]"
+                      :key="count"
+                      :class="{
+                        active: count <= ui.draftParams.n,
+                        hovered: quantityHoveredPosition === count && count !== ui.draftParams.n,
+                      }"
+                    />
+                  </div>
+                  <div
+                    class="quantity-slider-thumb"
+                    :class="{
+                      'is-hovered': quantityHoveredPosition === ui.draftParams.n,
+                      'is-dragging': quantityDragging,
+                    }"
+                  />
+                </div>
+                <input
+                  v-model.number="ui.draftParams.n"
+                  class="quantity-slider"
+                  type="range"
+                  min="1"
+                  max="4"
+                  step="1"
+                  aria-label="单次生成张数"
+                  :aria-valuetext="`${ui.draftParams.n} 张`"
+                  :disabled="!quantityExpanded"
+                  @pointermove="updateQuantitySliderHover"
+                  @pointerleave="finishQuantitySliderDrag()"
+                  @pointerdown="startQuantitySliderDrag"
+                  @pointerup="finishQuantitySliderDrag"
+                  @pointercancel="finishQuantitySliderDrag()"
+                />
+              </div>
+
+              <div class="quantity-scale" aria-hidden="true">
+                <span v-for="count in [1, 2, 3, 4]" :key="count" :class="{ active: count === ui.draftParams.n }">{{ count }}</span>
+              </div>
+            </div>
           </div>
         </div>
         <div class="parameter-group format-group">
@@ -660,23 +875,360 @@ watch(
 .dock-menu > button > p { margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10.5px; color: var(--color-fade); }
 
 .parameter-tray {
+  --parameter-control-height: 36px;
   display: grid;
-  grid-template-columns: 1.25fr 0.85fr 1fr 1fr 1.1fr auto;
+  grid-template-columns: minmax(250px, 2fr) minmax(96px, 0.8fr) minmax(96px, 0.8fr) 64px minmax(112px, 0.95fr) auto;
   gap: 12px;
-  align-items: end;
+  align-items: start;
   border-top: 1px solid var(--color-line);
   padding: 12px 18px 16px;
 }
-.parameter-group { min-width: 0; }
-.parameter-group > .field-label { display: block; margin-bottom: 6px; }
-.cost-block { min-width: 88px; padding-bottom: 2px; text-align: right; }
-.cost-block span { display: block; margin-bottom: 5px; }
-.cost-block strong { font-family: var(--font-mono); font-size: 12px; font-weight: 500; color: var(--color-accenthi); }
+.parameter-group {
+  display: grid;
+  min-width: 0;
+  grid-template-rows: 13px var(--parameter-control-height);
+  gap: 6px;
+}
+.parameter-group > .field-label {
+  display: block;
+  line-height: 13px;
+}
+.parameter-group > .seg {
+  height: var(--parameter-control-height);
+  box-sizing: border-box;
+  border-color: var(--color-line);
+  border-radius: 10px;
+  background: var(--color-panel2);
+}
+.parameter-group > .seg > button {
+  height: 28px;
+  padding-block: 0;
+  border-radius: 7px;
+  font-size: 11px;
+  line-height: 28px;
+}
+.ratio-group .seg {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+.ratio-group .seg > button {
+  padding-inline: 2px;
+}
+.custom-ratio-input {
+  min-width: 0;
+  height: 28px;
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--color-accent);
+  border-radius: 7px;
+  background: var(--color-well);
+  padding: 4px 2px;
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--color-paper);
+  outline: none;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-accent) 10%, transparent);
+}
+.custom-ratio-input::placeholder { color: var(--color-dim); }
+.custom-ratio-input.invalid {
+  border-color: var(--color-red);
+  color: var(--color-red);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-red) 10%, transparent);
+}
+.quantity-group {
+  position: relative;
+  width: 64px;
+}
+.quantity-control {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  z-index: 7;
+  width: 64px;
+  max-height: var(--parameter-control-height);
+  overflow: hidden;
+  border: 1px solid var(--color-line);
+  border-radius: 10px;
+  background: var(--color-panel2);
+  transform-origin: right bottom;
+  transition:
+    width 0.3s var(--ease-out-soft),
+    max-height 0.3s var(--ease-out-soft),
+    border-radius 0.24s,
+    border-color 0.18s,
+    background 0.18s,
+    box-shadow 0.2s;
+}
+.quantity-control:hover {
+  border-color: var(--color-line2);
+  background: var(--color-panel2);
+}
+.quantity-control.is-expanded {
+  border-color: color-mix(in srgb, var(--color-accent) 35%, var(--color-line2));
+  background: var(--color-well);
+}
+.quantity-control.is-expanded {
+  width: min(286px, calc(100vw - 48px));
+  max-height: 105px;
+  border-radius: 16px;
+  box-shadow: var(--shadow-pop);
+}
+.quantity-trigger {
+  display: flex;
+  height: 34px;
+  width: 100%;
+  align-items: center;
+  justify-content: center;
+  padding: 0 10px;
+  font-size: 12px;
+  color: var(--color-fade);
+  transition: color 0.16s;
+}
+.quantity-compact-value {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  white-space: nowrap;
+}
+.quantity-number-window {
+  display: inline-grid;
+  height: 1.15em;
+  width: 1ch;
+  overflow: hidden;
+  place-items: center;
+  line-height: 1;
+  vertical-align: middle;
+}
+.quantity-number-window > strong {
+  grid-area: 1 / 1;
+  display: block;
+  line-height: 1;
+  will-change: transform, opacity;
+}
+.quantity-wheel-increase-enter-active,
+.quantity-wheel-increase-leave-active,
+.quantity-wheel-decrease-enter-active,
+.quantity-wheel-decrease-leave-active {
+  transition:
+    transform 0.46s cubic-bezier(0.16, 1, 0.3, 1),
+    opacity 0.38s ease;
+}
+.quantity-wheel-increase-enter-from {
+  opacity: 0;
+  transform: translateY(180%);
+}
+.quantity-wheel-increase-leave-to {
+  opacity: 0;
+  transform: translateY(-180%);
+}
+.quantity-wheel-decrease-enter-from {
+  opacity: 0;
+  transform: translateY(-180%);
+}
+.quantity-wheel-decrease-leave-to {
+  opacity: 0;
+  transform: translateY(180%);
+}
+.quantity-compact-value strong {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-paper);
+}
+.quantity-trigger:hover { color: var(--color-paper); }
+.quantity-expanded-heading {
+  display: none;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--color-fade);
+}
+.quantity-expanded-value {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--color-accenthi);
+}
+.quantity-expanded-value strong {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 650;
+}
+.quantity-control.is-expanded .quantity-trigger {
+  justify-content: stretch;
+  padding-inline: 14px;
+}
+.quantity-control.is-expanded .quantity-compact-value { display: none; }
+.quantity-control.is-expanded .quantity-expanded-heading { display: flex; }
+.quantity-control.is-expanded .quantity-expanded-value svg {
+  opacity: 0.75;
+}
+.quantity-editor {
+  border-top: 1px solid var(--color-line);
+  padding: 8px 14px 10px;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translateY(-5px);
+  transition:
+    opacity 0.16s ease,
+    visibility 0s linear 0.18s,
+    transform 0.22s var(--ease-out-soft);
+}
+.quantity-control.is-expanded .quantity-editor {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transform: none;
+  transition-delay: 0.08s, 0s, 0.06s;
+}
+.quantity-slider-wrap {
+  --quantity-slider-duration: 0.34s;
+  --quantity-slider-easing: cubic-bezier(0.22, 0.8, 0.24, 1);
+  position: relative;
+  height: 36px;
+}
+.quantity-slider-rail {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+  border: 1px solid var(--color-line2);
+  border-radius: 999px;
+  background: var(--color-panel2);
+  box-shadow: inset 0 1px 2px rgb(38 35 28 / 0.08);
+}
+.quantity-slider-fill {
+  position: absolute;
+  inset: 0 calc(100% - var(--quantity-progress) - 18px) 0 0;
+  border-radius: inherit;
+  background: color-mix(in srgb, var(--color-paper) 78%, var(--color-panel2));
+  transition: right var(--quantity-slider-duration) var(--quantity-slider-easing);
+}
+.quantity-slider-thumb {
+  position: absolute;
+  z-index: 3;
+  top: 50%;
+  left: var(--quantity-progress);
+  height: 36px;
+  width: 36px;
+  border: 1px solid color-mix(in srgb, var(--color-paper) 8%, transparent);
+  border-radius: 50%;
+  background: var(--color-well);
+  box-shadow:
+    0 2px 8px rgb(38 35 28 / 0.2),
+    0 0 0 1px rgb(255 255 255 / 0.35) inset;
+  transform: translate(-50%, -50%);
+  transition:
+    left var(--quantity-slider-duration) var(--quantity-slider-easing),
+    transform 0.2s cubic-bezier(0.16, 1, 0.3, 1),
+    box-shadow 0.2s ease;
+}
+.quantity-slider {
+  position: absolute;
+  z-index: 5;
+  inset: 0;
+  display: block;
+  height: 36px;
+  width: 100%;
+  cursor: pointer;
+  appearance: none;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  opacity: 0;
+}
+.quantity-slider::-webkit-slider-thumb {
+  height: 36px;
+  width: 36px;
+  appearance: none;
+  border: 0;
+  background: transparent;
+}
+.quantity-slider::-moz-range-thumb {
+  height: 36px;
+  width: 36px;
+  border: 0;
+  background: transparent;
+}
+.quantity-slider-thumb.is-hovered {
+  box-shadow: 0 4px 12px rgb(38 35 28 / 0.26);
+  transform: translate(-50%, -50%) scale(1.22);
+}
+.quantity-slider-thumb.is-dragging {
+  box-shadow: 0 4px 12px rgb(38 35 28 / 0.26);
+  transform: translate(-50%, -50%) scale(1.22);
+}
+.quantity-slider-wrap:has(.quantity-slider:focus-visible) .quantity-slider-thumb:not(.is-hovered):not(.is-dragging) {
+  box-shadow: 0 3px 10px rgb(38 35 28 / 0.25);
+  transform: translate(-50%, -50%) scale(1.06);
+}
+.quantity-dots {
+  position: absolute;
+  z-index: 2;
+  top: 50%;
+  right: 18px;
+  left: 18px;
+  display: flex;
+  justify-content: space-between;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+.quantity-dots i {
+  height: 6px;
+  width: 6px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--color-paper) 32%, transparent);
+  transition: background 0.2s, transform 0.2s var(--ease-out-soft);
+}
+.quantity-dots i.active {
+  background: color-mix(in srgb, var(--color-well) 68%, transparent);
+}
+.quantity-dots i.hovered {
+  background: color-mix(in srgb, var(--color-paper) 48%, transparent);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--color-well) 18%, transparent);
+  transform: scale(1.55);
+}
+.quantity-scale { display: flex; justify-content: space-between; padding: 0 2px; }
+.quantity-scale span {
+  min-width: 16px;
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  color: var(--color-dim);
+  transition: color 0.15s, font-weight 0.15s;
+}
+.quantity-scale span.active { font-weight: 700; color: var(--color-accenthi); }
+.cost-block {
+  display: grid;
+  min-width: 88px;
+  grid-template-rows: 13px var(--parameter-control-height);
+  gap: 6px;
+  text-align: right;
+}
+.cost-block span { display: block; line-height: 13px; }
+.cost-block strong {
+  display: flex;
+  height: var(--parameter-control-height);
+  align-items: center;
+  justify-content: flex-end;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-accenthi);
+}
 
 @media (max-width: 860px) {
   .generate-dock { right: 14px; bottom: 14px; left: 90px; }
-  .parameter-tray { grid-template-columns: 1.3fr 1fr 1fr; }
-  .format-group { grid-column: span 2; }
+  .parameter-tray { grid-template-columns: 1.5fr 1fr 1fr; }
+  .quantity-group { grid-column: 3; }
+  .quantity-control {
+    right: 0;
+    left: auto;
+    transform-origin: right bottom;
+  }
+  .format-group { grid-column: 1 / span 2; }
   .cost-block { align-self: center; }
 }
 
@@ -694,7 +1246,9 @@ watch(
   .composer-tools { padding-left: 44px; }
   .parameter-summary { display: none; }
   .parameter-tray { grid-template-columns: 1fr 1fr; padding: 11px 12px 14px; }
-  .ratio-group, .format-group { grid-column: span 2; }
+  .ratio-group { grid-column: span 2; }
+  .format-group { grid-column: 1; }
+  .quantity-group { grid-column: 2; }
   .cost-block { text-align: left; }
 }
 
