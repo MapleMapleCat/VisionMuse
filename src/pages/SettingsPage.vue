@@ -32,7 +32,8 @@ const storageQuota = ref<{ usage: number; quota: number }>()
 let saveTimer: ReturnType<typeof setTimeout> | undefined
 const operationNames = ['generation', 'edit'] as const
 const templateVariables = [
-  '{{prompt}}', '{{model}}', '{{size}}', '{{quality}}', '{{format}}', '{{n}}',
+  '{{prompt}}', '{{model}}', '{{size}}', '{{width}}', '{{height}}', '{{aspectRatio}}', '{{resolution}}',
+  '{{quality}}', '{{format}}', '{{n}}',
   '{{referenceImageFile}}', '{{referenceImageBase64}}',
 ]
 const responseFields = [
@@ -267,6 +268,11 @@ onBeforeUnmount(() => {
           <div>
             <p class="mb-2 text-[11px] leading-relaxed text-dim">
               模板变量：<template v-for="(variable, index) in templateVariables" :key="variable"><code>{{ variable }}</code>{{ index < templateVariables.length - 1 ? '、' : '。' }}</template>
+            </p>
+            <p class="mb-3 rounded-lg border border-line bg-well px-3 py-2 text-[10.5px] leading-relaxed text-dim">
+              不同接口的尺寸字段并不通用。如果接口不接受 <code>size: "4096x2304"</code>，可按服务商文档改用
+              <code v-text="'{{width}}'" /> / <code v-text="'{{height}}'" />，或
+              <code v-text="'{{aspectRatio}}'" /> / <code v-text="'{{resolution}}'" />。
             </p>
             <div class="grid gap-3 sm:grid-cols-3">
               <label v-for="field in responseFields" :key="field[0]" class="block">

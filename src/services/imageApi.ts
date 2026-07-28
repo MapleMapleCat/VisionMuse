@@ -5,12 +5,17 @@ import type {
   ImageApiResult,
   ReferenceImage,
 } from '@/types'
+import { getImageAspectRatio, getImageResolution, sizeToWH } from '@/types'
 import { base64ToBlob, blobToBase64, getMimeTypeForFormat } from './imageAssets'
 
 interface RequestVariables {
   prompt: string
   model: string
   size: string
+  width?: number
+  height?: number
+  aspectRatio?: string
+  resolution?: string
   quality: string
   format: string
   n: number
@@ -185,10 +190,16 @@ async function createRequestVariables(
   referenceImage?: ReferenceImage,
   requiresReferenceBase64 = false,
 ): Promise<RequestVariables> {
+  const { w: width, h: height } = sizeToWH(params.size)
+
   return {
     prompt,
     model,
     size: params.size,
+    width,
+    height,
+    aspectRatio: getImageAspectRatio(params.size),
+    resolution: getImageResolution(params.size),
     quality: params.quality,
     format: params.format,
     n: params.n,

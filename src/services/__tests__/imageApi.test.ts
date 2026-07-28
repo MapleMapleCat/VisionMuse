@@ -42,6 +42,36 @@ describe('custom image API request templates', () => {
     })
   })
 
+  it('provides dimensions, aspect ratio, and resolution to request templates', async () => {
+    vi.stubGlobal('window', globalThis)
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => new Response(JSON.stringify({
+      data: [{ b64_json: btoa('generated-image') }],
+    }), { status: 200, headers: { 'content-type': 'application/json' } }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const settings = cloneDefaultSettings().api
+    settings.generation.bodyTemplate = JSON.stringify({
+      width: '{{width}}',
+      height: '{{height}}',
+      aspect_ratio: '{{aspectRatio}}',
+      resolution: '{{resolution}}',
+    })
+
+    await requestImages({
+      settings,
+      prompt: 'a cinematic landscape',
+      params: { size: '4096x2304', quality: 'high', format: 'png', n: 1 },
+    })
+
+    const requestInit = fetchMock.mock.calls[0]?.[1]
+    expect(JSON.parse(String(requestInit?.body))).toEqual({
+      width: 4096,
+      height: 2304,
+      aspect_ratio: '16:9',
+      resolution: '4K',
+    })
+  })
+
   it('attaches reference images to configurable multipart fields', () => {
     const referenceBlob = new Blob(['reference'], { type: 'image/png' })
     const formData = buildMultipartRequestBody(

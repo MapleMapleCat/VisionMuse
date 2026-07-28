@@ -5,7 +5,7 @@ import { useRouter } from 'vue-router'
 import { useGalleryStore } from '@/stores/gallery'
 import { useUiStore } from '@/stores/ui'
 import { useSettingsStore } from '@/stores/settings'
-import { estimateCost } from '@/types'
+import { estimateCost, sizeToWH } from '@/types'
 import { downloadBlob, getImageFileName } from '@/services/download'
 
 const gallery = useGalleryStore()
@@ -16,6 +16,16 @@ const router = useRouter()
 const rec = computed(() => (ui.viewerId ? gallery.byId(ui.viewerId) : undefined))
 const idx = computed(() => (ui.viewerId ? ui.viewerList.indexOf(ui.viewerId) : -1))
 const siblings = computed(() => (rec.value ? gallery.siblings(rec.value) : []))
+const requestedDimensions = computed(() => {
+  if (!rec.value) return undefined
+  const { w: width, h: height } = sizeToWH(rec.value.params.size)
+  return { width, height }
+})
+const dimensionsMismatch = computed(() => Boolean(
+  rec.value
+  && requestedDimensions.value
+  && (rec.value.width !== requestedDimensions.value.width || rec.value.height !== requestedDimensions.value.height),
+))
 
 const tagInput = ref('')
 const drawerEl = ref<HTMLElement>()
@@ -245,13 +255,17 @@ const dateText = computed(() => {
               <div class="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-line bg-line shadow-card">
                 <div class="bg-well px-3 py-2"><span class="text-[10.5px] text-dim">模型</span><div class="truncate font-mono text-[12px]" :title="rec.model">{{ rec.model }}</div></div>
                 <div class="bg-well px-3 py-2"><span class="text-[10.5px] text-dim">类型</span><div class="font-mono text-[12px]">{{ rec.kind === 'edit' ? 'img2img' : 'text2img' }}</div></div>
-                <div class="bg-well px-3 py-2"><span class="text-[10.5px] text-dim">尺寸</span><div class="font-mono text-[12px]">{{ rec.width }} × {{ rec.height }}</div></div>
+                <div class="bg-well px-3 py-2"><span class="text-[10.5px] text-dim">实际尺寸</span><div class="font-mono text-[12px]" :class="{ 'text-red': dimensionsMismatch }">{{ rec.width }} × {{ rec.height }}</div></div>
+                <div class="bg-well px-3 py-2"><span class="text-[10.5px] text-dim">请求尺寸</span><div class="font-mono text-[12px]">{{ requestedDimensions?.width }} × {{ requestedDimensions?.height }}</div></div>
                 <div class="bg-well px-3 py-2"><span class="text-[10.5px] text-dim">质量</span><div class="font-mono text-[12px]">{{ rec.params.quality }}</div></div>
                 <div class="bg-well px-3 py-2"><span class="text-[10.5px] text-dim">时间</span><div class="font-mono text-[12px]">{{ dateText }}</div></div>
                 <div class="bg-well px-3 py-2"><span class="text-[10.5px] text-dim">格式 / 大小</span><div class="font-mono text-[12px]">{{ rec.fileExtension }} · {{ formatBytes(rec.byteSize) }}</div></div>
                 <div class="bg-well px-3 py-2"><span class="text-[10.5px] text-dim">成本估算</span><div class="font-mono text-[12px] text-amberhi">≈ ${{ (estimateCost(rec.params, rec.kind, settings.settings.estimatedCostByQuality) / rec.params.n).toFixed(2) }}</div></div>
                 <div class="col-span-2 bg-well px-3 py-2"><span class="text-[10.5px] text-dim">请求地址</span><div class="truncate font-mono text-[11px]" :title="rec.requestEndpoint">{{ rec.requestEndpoint }}</div></div>
               </div>
+              <p v-if="dimensionsMismatch" class="mt-2 rounded-lg border border-red/20 bg-red/4 px-3 py-2 text-[10.5px] leading-relaxed text-red/85">
+                接口返回的图片尺寸与请求不一致。通常表示当前模型不支持该尺寸，或请求模板中的尺寸字段未被接口识别。
+              </p>
             </div>
 
             <!-- 标签 -->
