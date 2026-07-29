@@ -423,6 +423,7 @@ function handleBranchAfterEnter(enteredElement: Element) {
 
 .taxonomy-group-title-row {
   display: flex;
+  flex-wrap: wrap;
   min-width: 0;
   align-items: center;
   gap: 7px;
@@ -829,16 +830,18 @@ function handleBranchAfterEnter(enteredElement: Element) {
 .taxonomy-summary-list {
   position: relative;
   display: flex;
+  flex: 1 1 220px;
+  flex-wrap: wrap;
   min-width: 0;
   align-items: center;
   gap: 4px;
-  overflow: hidden;
 }
 
 .taxonomy-summary-chip {
   display: inline-flex;
   min-width: 0;
-  flex: 0 1 auto;
+  max-width: 100%;
+  flex: none;
   align-items: center;
   gap: 4px;
   overflow: hidden;
