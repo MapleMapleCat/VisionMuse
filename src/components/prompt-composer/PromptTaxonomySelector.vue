@@ -83,16 +83,40 @@ function getGroupSelectionCount(indexedGroup: IndexedPromptTaxonomyGroup): numbe
   return indexedGroup.group.choices.filter(choice => selectedChoiceSet.value.has(choice.id)).length
 }
 
-function groupHasReachedCollapseThreshold(groupId: string): boolean {
+function isPromptTaxonomyGroupComplete(groupId: string): boolean {
   const indexedGroup = PROMPT_TAXONOMY_INDEX.groupsById.get(groupId)
   if (!indexedGroup) return false
-  return getGroupSelectionCount(indexedGroup) >= indexedGroup.group.maxSelections
+
+  const selectedChoices = indexedGroup.group.choices.filter(choice => (
+    selectedChoiceSet.value.has(choice.id)
+  ))
+  if (selectedChoices.length < indexedGroup.group.maxSelections) return false
+
+  return selectedChoices.every(choice => (
+    choice.children?.every(childGroup => (
+      isPromptTaxonomyGroupComplete(childGroup.id)
+    )) ?? true
+  ))
 }
 
-function getBranchConvergenceGroupId(groupId: string): string {
-  const indexedGroup = PROMPT_TAXONOMY_INDEX.groupsById.get(groupId)
-  if (!indexedGroup?.parentChoiceId) return groupId
-  return PROMPT_TAXONOMY_INDEX.choicesById.get(indexedGroup.parentChoiceId)?.group.id ?? groupId
+function getAutomaticCollapseTargetGroupId(groupId: string): string {
+  let collapseTargetGroupId = groupId
+  let currentGroup = PROMPT_TAXONOMY_INDEX.groupsById.get(groupId)
+
+  while (currentGroup?.parentChoiceId) {
+    const parentChoice = PROMPT_TAXONOMY_INDEX.choicesById.get(currentGroup.parentChoiceId)
+    if (!parentChoice || !selectedChoiceSet.value.has(parentChoice.choice.id)) break
+
+    const allSiblingGroupsAreComplete = parentChoice.choice.children?.every(childGroup => (
+      isPromptTaxonomyGroupComplete(childGroup.id)
+    )) ?? true
+    if (!allSiblingGroupsAreComplete) break
+
+    collapseTargetGroupId = parentChoice.group.id
+    currentGroup = PROMPT_TAXONOMY_INDEX.groupsById.get(collapseTargetGroupId)
+  }
+
+  return collapseTargetGroupId
 }
 
 function cancelAutomaticCollapse(groupId: string) {
@@ -126,8 +150,8 @@ function scheduleBranchConvergence(endpointGroupId: string) {
   cancelAllAutomaticCollapses()
   const timeout = window.setTimeout(() => {
     automaticCollapseTimeouts.delete(endpointGroupId)
-    if (!groupHasReachedCollapseThreshold(endpointGroupId)) return
-    collapseGroupWithFocusSafety(getBranchConvergenceGroupId(endpointGroupId))
+    if (!isPromptTaxonomyGroupComplete(endpointGroupId)) return
+    collapseGroupWithFocusSafety(getAutomaticCollapseTargetGroupId(endpointGroupId))
   }, BRANCH_CONVERGENCE_DELAY_MILLISECONDS)
   automaticCollapseTimeouts.set(endpointGroupId, timeout)
 }
@@ -250,7 +274,7 @@ watch(
   () => props.selectedChoiceIds,
   () => {
     for (const pendingGroupId of [...automaticCollapseTimeouts.keys()]) {
-      if (groupHasReachedCollapseThreshold(pendingGroupId)) continue
+      if (isPromptTaxonomyGroupComplete(pendingGroupId)) continue
       cancelAutomaticCollapse(pendingGroupId)
     }
 
