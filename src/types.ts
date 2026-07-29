@@ -152,11 +152,15 @@ export type PromptModuleCategory = typeof PROMPT_MODULE_CATEGORY_KEYS[number]
 
 export interface PromptModule {
   id: string
+  /** Short label displayed in module selectors and selection tracks. */
   title: string
+  /** Full precision instruction inserted into the composed prompt. */
   content: string
   category: PromptModuleCategory
   useCount: number
   sortOrder: number
+  /** Optional mutually exclusive subgroup within a multi-select category. */
+  selectionGroup?: string
 }
 
 export const ASPECT_RATIO_OPTIONS: { value: ImageAspectRatio; label: string }[] = [

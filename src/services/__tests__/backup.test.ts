@@ -1,7 +1,7 @@
 import { strToU8, zipSync } from 'fflate'
 import { describe, expect, it } from 'vitest'
+import { DEFAULT_PROMPT_MODULES } from '@/assets/prompt-modules'
 import { cloneDefaultSettings } from '@/defaults/settings'
-import { DEFAULT_PROMPT_MODULES } from '@/defaults/promptModules'
 import { importBackup } from '@/services/backup'
 
 describe('backup compatibility', () => {

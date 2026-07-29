@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import { DEFAULT_PROMPT_MODULES } from '@/defaults/promptModules'
+import { DEFAULT_PROMPT_MODULES } from '@/assets/prompt-modules'
 import { cloneForStorage } from '@/services/clone'
 import { loadPromptModules, savePromptModule, savePromptModules } from '@/services/database'
 import type { PromptModule, PromptModuleCategory } from '@/types'

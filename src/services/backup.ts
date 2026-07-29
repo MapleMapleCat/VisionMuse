@@ -9,7 +9,7 @@ import type {
   StoredImageRecord,
 } from '@/types'
 import { PROMPT_MODULE_CATEGORY_KEYS } from '@/types'
-import { DEFAULT_PROMPT_MODULES } from '@/defaults/promptModules'
+import { DEFAULT_PROMPT_MODULES } from '@/assets/prompt-modules'
 import { downloadBlob } from './download'
 import { cloneForStorage } from './clone'
 

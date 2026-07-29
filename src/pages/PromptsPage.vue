@@ -4,7 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import {
   PROMPT_MODULE_CATEGORIES,
   type PromptModuleCategoryDefinition,
-} from '@/defaults/promptModules'
+} from '@/assets/prompt-modules'
 import { composePrompt } from '@/services/promptComposition'
 import { usePromptModuleStore } from '@/stores/promptModules'
 import { useTemplateStore } from '@/stores/templates'
@@ -63,6 +63,17 @@ function togglePromptModule(
   if (category.selectionMode === 'single') {
     selectedModuleIds[category.key] = [promptModule.id]
     return
+  }
+
+  if (promptModule.selectionGroup) {
+    const sameGroupSelectionIndex = categorySelections.findIndex(selectedModuleId => (
+      promptModuleStore.promptModules.find(module => module.id === selectedModuleId)?.selectionGroup
+        === promptModule.selectionGroup
+    ))
+    if (sameGroupSelectionIndex >= 0) {
+      categorySelections.splice(sameGroupSelectionIndex, 1, promptModule.id)
+      return
+    }
   }
 
   if (categorySelections.length >= category.maxSelections) {
@@ -255,13 +266,13 @@ onMounted(() => {
                 class="module-option"
                 :class="{ 'is-selected': isModuleSelected(promptModule) }"
                 :aria-pressed="isModuleSelected(promptModule)"
+                :title="promptModule.content"
                 @click="togglePromptModule(category, promptModule)"
               >
                 <span class="module-option-title">
                   <span>{{ promptModule.title }}</span>
                   <span v-if="isModuleSelected(promptModule)" aria-hidden="true">✓</span>
                 </span>
-                <span class="module-option-content">{{ promptModule.content }}</span>
               </button>
             </div>
           </section>
@@ -300,6 +311,7 @@ onMounted(() => {
               <div>
                 <p class="field-label">Module track</p>
                 <h3 class="mt-1 text-[13px] font-semibold">选择的提示词片段</h3>
+                <p class="mt-1 text-[10.5px] leading-relaxed text-dim">轨道显示短名称，最终提示词使用对应的完整精确指令。</p>
               </div>
               <span class="rounded-full bg-accentsoft px-2.5 py-1 font-mono text-[10px] text-accenthi">
                 {{ selectedModuleCount }} 项 · {{ selectedCategoryCount }} 类
@@ -417,9 +429,8 @@ onMounted(() => {
 <style scoped>
 .module-option {
   display: flex;
-  min-height: 72px;
+  min-height: 42px;
   flex-direction: column;
-  gap: 6px;
   border: 1px solid var(--color-line);
   border-radius: 11px;
   background: color-mix(in srgb, var(--color-ink) 38%, var(--color-well));
@@ -447,7 +458,6 @@ onMounted(() => {
   color: var(--color-paper);
 }
 .module-option.is-selected .module-option-title { color: var(--color-accenthi); }
-.module-option-content { font-family: var(--font-mono); font-size: 9.8px; line-height: 1.5; color: var(--color-dim); }
 .composer-preview { background: color-mix(in srgb, var(--color-well) 94%, var(--color-accentsoft)); }
 .core-content-panel {
   border: 1px solid var(--color-paper);
