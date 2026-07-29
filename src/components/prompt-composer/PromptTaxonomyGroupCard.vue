@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed } from 'vue'
 import {
   PROMPT_TAXONOMY_INDEX,
   type IndexedPromptTaxonomyGroup,
@@ -11,7 +11,6 @@ import type { PromptModule } from '@/types'
 interface PromptChoiceViewModel {
   choice: PromptTaxonomyChoiceDefinition
   promptModule?: PromptModule
-  choiceIndex: number
   isSelected: boolean
   isEnabled: boolean
   disabledReason?: string
@@ -27,14 +26,7 @@ interface PromptChoiceToggleRequest {
 interface VisiblePromptChildBranch {
   choice: PromptTaxonomyChoiceDefinition
   choiceLabel: string
-  choiceIndex: number
   childGroups: IndexedPromptTaxonomyGroup[]
-}
-
-interface PromptChoiceRow {
-  rowKey: string
-  choices: PromptChoiceViewModel[]
-  childBranches: VisiblePromptChildBranch[]
 }
 
 defineOptions({ name: 'PromptTaxonomyGroupCard' })
@@ -55,8 +47,6 @@ const emit = defineEmits<{
   groupAfterEnter: [groupId: string]
 }>()
 
-const choiceColumnCount = ref(getResponsiveChoiceColumnCount())
-const branchOriginPercentages = reactive(new Map<string, number>())
 const selectedChoiceSet = computed(() => new Set(props.selectedChoiceIds))
 const collapsed = computed(() => props.collapsedGroupIds.has(props.indexedGroup.group.id))
 
@@ -86,13 +76,12 @@ const selectedSubtreePromptModules = computed(() => PROMPT_TAXONOMY_INDEX.ordere
 const choiceViewModels = computed<PromptChoiceViewModel[]>(() => (
   [...props.indexedGroup.group.choices]
     .sort((firstChoice, secondChoice) => firstChoice.sortOrder - secondChoice.sortOrder)
-    .map((choice, choiceIndex) => {
+    .map((choice) => {
       const isSelected = selectedChoiceSet.value.has(choice.id)
       const availability = getPromptChoiceAvailability(choice.id, props.selectedChoiceIds)
       return {
         choice,
         promptModule: props.promptModulesById.get(choice.id),
-        choiceIndex,
         isSelected,
         isEnabled: isSelected || availability.enabled,
         disabledReason: availability.enabled ? undefined : availability.reason,
@@ -129,34 +118,10 @@ const visibleChildBranches = computed<VisiblePromptChildBranch[]>(() => (
     return [{
       choice: choiceViewModel.choice,
       choiceLabel: choiceViewModel.promptModule?.title ?? choiceViewModel.choice.id,
-      choiceIndex: choiceViewModel.choiceIndex,
       childGroups,
     }]
   })
 ))
-
-const choiceRows = computed<PromptChoiceRow[]>(() => {
-  const rows: PromptChoiceRow[] = []
-  for (
-    let rowStartIndex = 0;
-    rowStartIndex < choiceViewModels.value.length;
-    rowStartIndex += choiceColumnCount.value
-  ) {
-    const rowChoices = choiceViewModels.value.slice(
-      rowStartIndex,
-      rowStartIndex + choiceColumnCount.value,
-    )
-    const rowChoiceIds = new Set(rowChoices.map(choiceViewModel => choiceViewModel.choice.id))
-    rows.push({
-      rowKey: `${props.indexedGroup.group.id}-${choiceColumnCount.value}-${rowStartIndex}`,
-      choices: rowChoices,
-      childBranches: visibleChildBranches.value.filter(childBranch => (
-        rowChoiceIds.has(childBranch.choice.id)
-      )),
-    })
-  }
-  return rows
-})
 
 const activeBranchChoiceIds = computed(() => new Set(
   visibleChildBranches.value.map(childBranch => childBranch.choice.id),
@@ -174,40 +139,11 @@ function getChoiceAccessibleLabel(choiceViewModel: PromptChoiceViewModel): strin
   return title
 }
 
-function getResponsiveChoiceColumnCount(): number {
-  if (typeof window === 'undefined') return 2
-  if (window.matchMedia('(min-width: 1024px)').matches) return 4
-  if (window.matchMedia('(min-width: 640px)').matches) return 3
-  return 2
-}
-
-function updateChoiceColumnCount() {
-  const nextChoiceColumnCount = getResponsiveChoiceColumnCount()
-  if (nextChoiceColumnCount === choiceColumnCount.value) return
-  choiceColumnCount.value = nextChoiceColumnCount
-  branchOriginPercentages.clear()
-}
-
 function requestChoiceToggle(
   choiceViewModel: PromptChoiceViewModel,
   clickEvent: MouseEvent,
 ) {
   if (!choiceViewModel.isEnabled) return
-
-  const choiceElement = clickEvent.currentTarget as HTMLElement | null
-  const choiceRowElement = choiceElement?.closest<HTMLElement>('.taxonomy-choice-row')
-  if (choiceElement && choiceRowElement) {
-    const choiceBounds = choiceElement.getBoundingClientRect()
-    const choiceRowBounds = choiceRowElement.getBoundingClientRect()
-    const choiceCenterOffset = choiceBounds.left - choiceRowBounds.left + (choiceBounds.width / 2)
-    const rawOriginPercentage = choiceRowBounds.width > 0
-      ? (choiceCenterOffset / choiceRowBounds.width) * 100
-      : 50
-    branchOriginPercentages.set(
-      choiceViewModel.choice.id,
-      Math.min(92, Math.max(8, rawOriginPercentage)),
-    )
-  }
 
   emit('toggleChoice', {
     groupId: props.indexedGroup.group.id,
@@ -217,31 +153,10 @@ function requestChoiceToggle(
   })
 }
 
-function getBranchOriginStyle(childBranch: VisiblePromptChildBranch): Record<string, string> {
-  const choiceColumnIndex = childBranch.choiceIndex % choiceColumnCount.value
-  const fallbackOriginPercentage = (
-    (choiceColumnIndex + 0.5) / choiceColumnCount.value
-  ) * 100
-  return {
-    '--taxonomy-branch-origin-x': `${
-      branchOriginPercentages.get(childBranch.choice.id) ?? fallbackOriginPercentage
-    }%`,
-  }
-}
-
 function handleBranchAfterEnter(enteredElement: Element) {
   const firstChildGroupId = enteredElement.getAttribute('data-first-child-group')
   if (firstChildGroupId) emit('groupAfterEnter', firstChildGroupId)
 }
-
-onMounted(() => {
-  updateChoiceColumnCount()
-  window.addEventListener('resize', updateChoiceColumnCount, { passive: true })
-})
-
-onBeforeUnmount(() => {
-  window.removeEventListener('resize', updateChoiceColumnCount)
-})
 </script>
 
 <template>
@@ -318,14 +233,10 @@ onBeforeUnmount(() => {
         </p>
 
         <div class="taxonomy-choice-stack">
-          <div
-            v-for="choiceRow in choiceRows"
-            :key="choiceRow.rowKey"
-            class="taxonomy-choice-row"
-          >
+          <div class="taxonomy-choice-row">
             <div class="taxonomy-choice-grid">
               <button
-                v-for="choiceViewModel in choiceRow.choices"
+                v-for="choiceViewModel in choiceViewModels"
                 :key="choiceViewModel.choice.id"
                 class="taxonomy-choice"
                 :class="{
@@ -343,7 +254,11 @@ onBeforeUnmount(() => {
                   {{ choiceViewModel.promptModule?.title ?? choiceViewModel.choice.id }}
                 </span>
 
-                <span class="taxonomy-choice-state" aria-hidden="true">
+                <span
+                  v-if="choiceViewModel.isSelected || choiceViewModel.choice.children?.length"
+                  class="taxonomy-choice-state"
+                  aria-hidden="true"
+                >
                   <Transition name="taxonomy-check">
                     <span v-if="choiceViewModel.isSelected" class="taxonomy-check-mark">✓</span>
                     <svg
@@ -368,11 +283,10 @@ onBeforeUnmount(() => {
               @after-enter="handleBranchAfterEnter"
             >
               <section
-                v-for="childBranch in choiceRow.childBranches"
+                v-for="childBranch in visibleChildBranches"
                 :key="childBranch.choice.id"
                 class="taxonomy-child-branch"
                 :data-first-child-group="childBranch.childGroups[0]?.group.id"
-                :style="getBranchOriginStyle(childBranch)"
                 :aria-label="`${childBranch.choiceLabel}的下级细化选项`"
               >
                 <div class="taxonomy-child-branch-heading">
@@ -652,23 +566,27 @@ onBeforeUnmount(() => {
 }
 
 .taxonomy-choice-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 6px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
 }
 
 .taxonomy-choice {
   position: relative;
   z-index: 0;
-  display: flex;
-  min-height: 38px;
+  display: inline-flex;
+  width: fit-content;
+  max-width: 100%;
+  min-height: 30px;
+  flex: none;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: 7px;
   border: 1px solid var(--color-line);
-  border-radius: 9px;
-  background: color-mix(in srgb, var(--color-ink) 42%, var(--color-well));
-  padding: 7px 9px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-ink) 34%, var(--color-well));
+  padding: 4px 10px;
   color: var(--color-paper);
   text-align: left;
   transition:
@@ -682,8 +600,9 @@ onBeforeUnmount(() => {
 
 .taxonomy-choice:hover:not([aria-disabled='true']) {
   z-index: 2;
-  border-color: var(--color-line2);
-  box-shadow: var(--shadow-card);
+  border-color: color-mix(in srgb, var(--color-accent) 42%, var(--color-line2));
+  background: var(--color-well);
+  box-shadow: 0 4px 12px rgb(38 35 28 / 0.09);
   transform: translateY(-1px);
 }
 
@@ -694,18 +613,23 @@ onBeforeUnmount(() => {
 }
 
 .taxonomy-choice.is-selected {
-  border-color: var(--color-accent);
-  background: var(--color-accentsoft);
-  color: var(--color-accenthi);
+  border-color: var(--color-accenthi);
+  background: var(--color-accent);
+  color: var(--color-well);
+  box-shadow:
+    0 1px 0 rgb(255 255 255 / 0.12) inset,
+    0 5px 14px rgb(31 110 98 / 0.2);
+  transform: translateY(-1px);
 }
 
 .taxonomy-choice.is-branch-anchor {
   z-index: 2;
-  border-color: var(--color-accent);
-  background: color-mix(in srgb, var(--color-accentsoft) 88%, var(--color-well));
+  border-color: var(--color-accenthi);
+  background: var(--color-accent);
+  color: var(--color-well);
   box-shadow:
-    0 0 0 3px color-mix(in srgb, var(--color-accent) 9%, transparent),
-    0 8px 22px rgb(31 110 98 / 0.16);
+    0 0 0 4px color-mix(in srgb, var(--color-accent) 12%, transparent),
+    0 8px 20px rgb(31 110 98 / 0.24);
   transform: translateY(-2px);
 }
 
@@ -755,11 +679,10 @@ onBeforeUnmount(() => {
 
 .taxonomy-choice-title {
   min-width: 0;
-  overflow: hidden;
   font-size: 10.75px;
   font-weight: 600;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
 }
 
 .taxonomy-choice-state {
@@ -780,10 +703,11 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: center;
   border-radius: 999px;
-  background: var(--color-accent);
+  background: rgb(255 255 255 / 0.16);
   color: var(--color-well);
   font-size: 10px;
   font-weight: 700;
+  box-shadow: 0 0 0 1px rgb(255 255 255 / 0.24) inset;
 }
 
 .taxonomy-branch-arrow {
@@ -802,8 +726,6 @@ onBeforeUnmount(() => {
 }
 
 .taxonomy-child-branch {
-  --taxonomy-branch-origin-x: 50%;
-
   position: relative;
   margin-top: 17px;
   border: 1px solid color-mix(in srgb, var(--color-accent) 38%, var(--color-line));
@@ -811,13 +733,13 @@ onBeforeUnmount(() => {
   background: color-mix(in srgb, var(--color-well) 92%, var(--color-accentsoft));
   padding: 12px;
   box-shadow: var(--shadow-pop);
-  transform-origin: var(--taxonomy-branch-origin-x) top;
+  transform-origin: 24px top;
 }
 
 .taxonomy-child-branch::before {
   position: absolute;
   top: -18px;
-  left: var(--taxonomy-branch-origin-x);
+  left: 24px;
   width: 1px;
   height: 18px;
   background: linear-gradient(
@@ -832,7 +754,7 @@ onBeforeUnmount(() => {
 .taxonomy-child-branch::after {
   position: absolute;
   top: -21px;
-  left: var(--taxonomy-branch-origin-x);
+  left: 24px;
   width: 7px;
   height: 7px;
   border: 2px solid var(--color-well);
@@ -968,18 +890,6 @@ onBeforeUnmount(() => {
 .taxonomy-summary-chip-leave-to {
   opacity: 0;
   transform: scale(0.86) translateY(-2px);
-}
-
-@media (min-width: 640px) {
-  .taxonomy-choice-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-}
-
-@media (min-width: 1024px) {
-  .taxonomy-choice-grid {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-  }
 }
 
 @media (max-width: 480px) {
