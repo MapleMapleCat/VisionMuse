@@ -14,6 +14,7 @@ const emit = defineEmits<{
 }>()
 
 const variableValues = ref<Record<string, string>>({})
+const hasVariables = computed(() => Boolean(props.template?.variables.length))
 
 watch(
   () => props.template,
@@ -54,7 +55,8 @@ function useFilledPrompt() {
         @click="emit('close')"
       />
       <section
-        class="pop-in relative flex max-h-[90vh] w-[760px] max-w-full flex-col overflow-hidden rounded-2xl border border-line bg-well shadow-pop"
+        class="pop-in relative flex max-h-[90vh] max-w-full flex-col overflow-hidden rounded-2xl border border-line bg-well shadow-pop"
+        :class="hasVariables ? 'w-[760px]' : 'w-[660px]'"
         role="dialog"
         aria-modal="true"
         :aria-labelledby="`template-dialog-${template.id}`"
@@ -68,12 +70,19 @@ function useFilledPrompt() {
               </h3>
               <p class="mt-1 text-[11.5px] leading-relaxed text-dim">{{ template.summary }}</p>
             </div>
-            <button class="btn btn-ghost !px-2.5 !py-1.5" aria-label="关闭" @click="emit('close')">关闭</button>
+            <button class="dialog-close-button" aria-label="关闭模板窗口" @click="emit('close')">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                <path d="m6 6 12 12M18 6 6 18" />
+              </svg>
+            </button>
           </div>
         </header>
 
-        <div class="grid min-h-0 flex-1 md:grid-cols-[300px_minmax(0,1fr)]">
-          <div class="overflow-y-auto border-b border-line p-5 md:border-b-0 md:border-r">
+        <div
+          class="grid min-h-0 flex-1 overflow-y-auto md:overflow-hidden"
+          :class="hasVariables ? 'md:grid-cols-[300px_minmax(0,1fr)]' : 'grid-cols-1'"
+        >
+          <div v-if="hasVariables" class="border-b border-line p-5 md:overflow-y-auto md:border-b-0 md:border-r">
             <p class="field-label">Variables</p>
             <p class="mt-1 text-[11px] leading-relaxed text-dim">
               填写全部变量后才能复制或进入创作，最终文本不会保留占位符。
@@ -99,7 +108,7 @@ function useFilledPrompt() {
             </div>
           </div>
 
-          <div class="flex min-h-0 flex-col p-5">
+          <div class="flex min-h-0 flex-col p-5 md:overflow-hidden">
             <div class="flex items-center justify-between gap-3">
               <div>
                 <p class="field-label">Live preview</p>
@@ -109,11 +118,11 @@ function useFilledPrompt() {
                 class="rounded-full px-2.5 py-1 font-mono text-[9px]"
                 :class="fillResult.ready ? 'bg-accentsoft text-accenthi' : 'bg-amber/10 text-amberhi'"
               >
-                {{ fillResult.ready ? '可以使用' : `待填 ${fillResult.unresolvedVariableKeys.length} 项` }}
+                {{ fillResult.ready ? '已完成' : `待填 ${fillResult.missingRequiredVariableKeys.length} 项` }}
               </span>
             </div>
 
-            <div class="mt-3 min-h-44 flex-1 overflow-y-auto rounded-xl border border-line bg-ink/45 p-4">
+            <div class="mt-3 min-h-44 flex-1 rounded-xl border border-line bg-ink/45 p-4 md:overflow-y-auto">
               <p class="whitespace-pre-wrap text-[12px] leading-[1.85] text-fade">{{ fillResult.content }}</p>
             </div>
 
@@ -131,3 +140,26 @@ function useFilledPrompt() {
     </div>
   </Teleport>
 </template>
+
+<style scoped>
+.dialog-close-button {
+  display: grid;
+  height: 30px;
+  width: 30px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  color: var(--color-dim);
+  transition:
+    border-color var(--motion-fast) ease,
+    background var(--motion-fast) ease,
+    color var(--motion-fast) ease;
+}
+.dialog-close-button:hover,
+.dialog-close-button:focus-visible {
+  border-color: var(--color-line2);
+  background: color-mix(in srgb, var(--color-ink) 45%, transparent);
+  color: var(--color-paper);
+}
+</style>

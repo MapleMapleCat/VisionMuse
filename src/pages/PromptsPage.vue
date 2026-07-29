@@ -158,6 +158,12 @@ const templateMediumFilter = ref<'all' | PromptTemplateMedium>('all')
 const templateSortMode = ref<TemplateSortMode>('recommended')
 
 const fillTarget = ref<PromptTemplate | null>(null)
+const templateFiltersAreActive = computed(() => (
+  templateSearch.value.trim().length > 0
+  || templateScopeFilter.value !== 'all'
+  || templateMediumFilter.value !== 'all'
+  || templateSortMode.value !== 'recommended'
+))
 
 const shownTemplates = computed(() => {
   const normalizedSearch = templateSearch.value.trim().toLocaleLowerCase()
@@ -196,19 +202,14 @@ const shownTemplates = computed(() => {
 })
 
 function useTemplate(template: PromptTemplate) {
-  if (template.variables.length) {
-    fillTarget.value = template
-    return
-  }
-  void useFinalTemplatePrompt(template, template.content)
+  fillTarget.value = template
 }
 
-async function copyTemplate(template: PromptTemplate) {
-  if (template.variables.length) {
-    fillTarget.value = template
-    return
-  }
-  await copyFinalTemplatePrompt(template.content)
+function resetTemplateFilters() {
+  templateSearch.value = ''
+  templateScopeFilter.value = 'all'
+  templateMediumFilter.value = 'all'
+  templateSortMode.value = 'recommended'
 }
 
 async function copyFinalTemplatePrompt(content: string) {
@@ -253,19 +254,58 @@ onBeforeUnmount(() => {
 <template>
   <div class="flex h-full flex-col">
     <header class="border-b border-line bg-ink/90 px-6 pb-4 pt-5 backdrop-blur">
-      <p class="field-label">{{ activeView === 'modules' ? 'Atomic prompt modules' : 'Complete prompt library' }}</p>
-      <div class="mt-1.5 flex flex-wrap items-end gap-3">
-        <h1 class="display text-[27px] leading-none">
-          {{ activeView === 'modules' ? '提示词模块' : '完整提示词' }}
-        </h1>
-        <span class="pb-0.5 font-mono text-[10.5px] text-dim">
-          <template v-if="activeView === 'modules'">
-            {{ PROMPT_TAXONOMY_CHOICE_COUNT }} 个分级选项 · 条件展开 · 不自动搭配
-          </template>
-          <template v-else>
-            {{ templateStore.templates.length }} 条模板 · 8 个创作方向 · 4 种表现媒介
-          </template>
-        </span>
+      <div class="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(280px,360px)] lg:items-center">
+        <div>
+          <p class="field-label">{{ activeView === 'modules' ? 'Atomic prompt modules' : 'Complete prompt library' }}</p>
+          <div class="mt-1.5 flex flex-wrap items-end gap-3">
+            <h1 class="display text-[27px] leading-none">
+              {{ activeView === 'modules' ? '提示词模块' : '完整提示词' }}
+            </h1>
+            <span class="pb-0.5 font-mono text-[10.5px] text-dim">
+              <template v-if="activeView === 'modules'">
+                {{ PROMPT_TAXONOMY_CHOICE_COUNT }} 个分级选项 · 条件展开 · 不自动搭配
+              </template>
+              <template v-else>
+                {{ templateStore.templates.length }} 条模板 · 8 个创作方向 · 4 种表现媒介
+              </template>
+            </span>
+          </div>
+        </div>
+
+        <Transition name="template-header-search">
+          <div v-if="activeView === 'templates'" class="relative lg:justify-self-end lg:w-full">
+            <svg
+              class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-dim"
+              width="15"
+              height="15"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.8"
+              aria-hidden="true"
+            >
+              <circle cx="11" cy="11" r="6.5" />
+              <path d="m16 16 4 4" />
+            </svg>
+            <input
+              v-model="templateSearch"
+              type="search"
+              class="input w-full !py-2.5 !pl-9 !pr-9"
+              placeholder="搜索标题、用途或风格"
+              aria-label="搜索完整提示词"
+            />
+            <button
+              v-if="templateSearch"
+              class="template-search-clear"
+              aria-label="清空完整提示词搜索"
+              @click="templateSearch = ''"
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                <path d="m7 7 10 10M17 7 7 17" />
+              </svg>
+            </button>
+          </div>
+        </Transition>
       </div>
       <div class="seg mt-4 w-full max-w-[340px]" aria-label="提示词工具">
         <button
@@ -394,34 +434,9 @@ onBeforeUnmount(() => {
       </div>
 
       <div v-else key="templates" class="mx-auto max-w-[1180px]">
-        <section class="mb-4 rounded-2xl border border-line bg-well p-4 shadow-card">
-          <div class="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
-            <div>
-              <p class="field-label">Prompt library</p>
-              <h2 class="mt-1 text-[14px] font-semibold">按创作目的查找完整提示词</h2>
-              <p class="mt-1 text-[11px] leading-relaxed text-dim">
-                一级分类说明创作目的，媒介说明画面形成方式，风格标签用于补充视觉气质。
-              </p>
-            </div>
-            <div class="flex flex-wrap items-center gap-2">
-              <input
-                v-model="templateSearch"
-                type="search"
-                class="input min-w-[220px]"
-                placeholder="搜索标题、用途或风格"
-                aria-label="搜索完整提示词"
-              />
-              <select v-model="templateSortMode" class="input !w-auto" aria-label="完整提示词排序">
-                <option value="recommended">推荐顺序</option>
-                <option value="most-used">最常使用</option>
-              </select>
-            </div>
-          </div>
-        </section>
-
-        <section class="mb-4 space-y-3 rounded-2xl border border-line bg-ink/35 p-3.5">
+        <section class="mb-4 space-y-3 rounded-xl border border-line bg-ink/25 px-3.5 py-3">
           <div class="flex flex-wrap items-center gap-1.5">
-            <span class="mr-1 font-mono text-[9px] uppercase tracking-[0.12em] text-dim">创作方向</span>
+            <span class="mr-1 text-[10px] font-semibold text-fade">创作方向</span>
             <button
               class="chip"
               :class="{ on: templateScopeFilter === 'all' }"
@@ -445,23 +460,40 @@ onBeforeUnmount(() => {
             >我的</button>
           </div>
 
-          <div class="flex flex-wrap items-center gap-1.5">
-            <span class="mr-1 font-mono text-[9px] uppercase tracking-[0.12em] text-dim">表现媒介</span>
-            <button
-              class="chip"
-              :class="{ on: templateMediumFilter === 'all' }"
-              :aria-pressed="templateMediumFilter === 'all'"
-              @click="templateMediumFilter = 'all'"
-            >全部媒介</button>
-            <button
-              v-for="medium in PROMPT_TEMPLATE_MEDIA"
-              :key="medium.id"
-              class="chip"
-              :class="{ on: templateMediumFilter === medium.id }"
-              :aria-pressed="templateMediumFilter === medium.id"
-              :title="medium.description"
-              @click="templateMediumFilter = medium.id"
-            >{{ medium.label }}</button>
+          <div class="grid gap-3 border-t border-line pt-3 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-center">
+            <div class="flex flex-wrap items-center gap-1.5">
+              <span class="mr-1 text-[10px] font-semibold text-fade">表现媒介</span>
+              <button
+                class="chip"
+                :class="{ on: templateMediumFilter === 'all' }"
+                :aria-pressed="templateMediumFilter === 'all'"
+                @click="templateMediumFilter = 'all'"
+              >全部媒介</button>
+              <button
+                v-for="medium in PROMPT_TEMPLATE_MEDIA"
+                :key="medium.id"
+                class="chip"
+                :class="{ on: templateMediumFilter === medium.id }"
+                :aria-pressed="templateMediumFilter === medium.id"
+                :title="medium.description"
+                @click="templateMediumFilter = medium.id"
+              >{{ medium.label }}</button>
+            </div>
+
+            <div class="flex flex-wrap items-center gap-2 xl:justify-end">
+              <span class="font-mono text-[9.5px] text-dim">
+                显示 {{ shownTemplates.length }} / {{ templateStore.templates.length }}
+              </span>
+              <select v-model="templateSortMode" class="input !w-auto !py-1.5" aria-label="完整提示词排序">
+                <option value="recommended">推荐顺序</option>
+                <option value="most-used">最常使用</option>
+              </select>
+              <button
+                v-if="templateFiltersAreActive"
+                class="btn btn-ghost !px-2.5 !py-1.5 text-[10px]"
+                @click="resetTemplateFilters"
+              >重置</button>
+            </div>
           </div>
         </section>
 
@@ -471,8 +503,7 @@ onBeforeUnmount(() => {
             :key="template.id"
             :template="template"
             :stagger-index="templateIndex"
-            @use="useTemplate"
-            @copy="copyTemplate"
+            @open="useTemplate"
           />
         </div>
 
@@ -480,8 +511,9 @@ onBeforeUnmount(() => {
           v-if="!shownTemplates.length"
           class="rounded-2xl border border-dashed border-line2 bg-well/45 px-5 py-12 text-center"
         >
-          <p class="text-[13px] font-semibold">没有符合当前条件的完整提示词</p>
-          <p class="mt-1 text-[11px] text-dim">尝试清空搜索词，或切换创作方向和表现媒介。</p>
+          <p class="text-[13px] font-semibold">没有找到相关模板</p>
+          <p class="mt-1 text-[11px] text-dim">尝试缩短搜索词，或清除创作方向和表现媒介筛选。</p>
+          <button class="btn mt-4 !py-1.5 text-[11px]" @click="resetTemplateFilters">重置筛选</button>
         </section>
       </div>
       </Transition>
@@ -497,6 +529,38 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+.template-search-clear {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  display: grid;
+  height: 24px;
+  width: 24px;
+  transform: translateY(-50%);
+  place-items: center;
+  border-radius: 7px;
+  color: var(--color-dim);
+  transition:
+    background var(--motion-fast) ease,
+    color var(--motion-fast) ease;
+}
+.template-search-clear:hover,
+.template-search-clear:focus-visible {
+  background: color-mix(in srgb, var(--color-paper) 7%, transparent);
+  color: var(--color-paper);
+}
+input[type='search']::-webkit-search-cancel-button { display: none; }
+.template-header-search-enter-active,
+.template-header-search-leave-active {
+  transition:
+    opacity 160ms ease,
+    transform 180ms var(--ease-out-soft);
+}
+.template-header-search-enter-from,
+.template-header-search-leave-to {
+  opacity: 0;
+  transform: translateY(-4px);
+}
 .composer-preview { background: color-mix(in srgb, var(--color-well) 94%, var(--color-accentsoft)); }
 .core-content-panel {
   border: 1px solid var(--color-paper);
