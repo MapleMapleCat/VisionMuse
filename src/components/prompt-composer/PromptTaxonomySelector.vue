@@ -1,13 +1,18 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import {
   PROMPT_TAXONOMY_DOMAINS,
   PROMPT_TAXONOMY_INDEX,
   type IndexedPromptTaxonomyChoice,
   type IndexedPromptTaxonomyGroup,
+  type PromptSelectionCondition,
 } from '@/assets/prompt-taxonomy'
 import PromptTaxonomyGroupCard from '@/components/prompt-composer/PromptTaxonomyGroupCard.vue'
-import { getVisiblePromptTaxonomyGroups } from '@/services/promptSelection'
+import {
+  getUnmetPromptSelectionRequirements,
+  getVisiblePromptTaxonomyGroups,
+  type UnmetPromptSelectionRequirement,
+} from '@/services/promptSelection'
 import type { PromptModule } from '@/types'
 
 interface PromptChoiceToggleRequest {
@@ -15,6 +20,21 @@ interface PromptChoiceToggleRequest {
   choiceId: string
   firstChildGroupId?: string
   interactionMode: 'keyboard' | 'pointer'
+}
+
+interface PromptSelectionRequirementOptionViewModel {
+  choiceId: string
+  choiceLabel: string
+  groupLabel: string
+  domainId: string
+  domainLabel: string
+}
+
+interface PromptSelectionRequirementViewModel {
+  key: string
+  type: UnmetPromptSelectionRequirement['type']
+  blockedTargetLabels: string[]
+  options: PromptSelectionRequirementOptionViewModel[]
 }
 
 const BRANCH_CONVERGENCE_DELAY_MILLISECONDS = 260
@@ -107,9 +127,124 @@ const taxonomySelectionCount = computed(() => props.selectedChoiceIds.filter(cho
 const selectedDomainCount = computed(() => PROMPT_TAXONOMY_DOMAINS.filter(domain => (
   getDomainSelectionCount(domain.id) > 0
 )).length)
+const activeDomainSelectionRequirements = computed<PromptSelectionRequirementViewModel[]>(() => {
+  const requirementsByKey = new Map<string, PromptSelectionRequirementViewModel>()
+
+  function recordSelectionRequirements(
+    condition: PromptSelectionCondition | undefined,
+    blockedTargetLabel: string,
+  ) {
+    const unmetRequirements = getUnmetPromptSelectionRequirements(
+      condition,
+      props.selectedChoiceIds,
+    )
+
+    for (const unmetRequirement of unmetRequirements) {
+      const requirementKey = [
+        unmetRequirement.type,
+        ...[...unmetRequirement.choiceIds].sort(),
+      ].join(':')
+      const existingRequirement = requirementsByKey.get(requirementKey)
+      if (existingRequirement) {
+        if (!existingRequirement.blockedTargetLabels.includes(blockedTargetLabel)) {
+          existingRequirement.blockedTargetLabels.push(blockedTargetLabel)
+        }
+        continue
+      }
+
+      const options = unmetRequirement.choiceIds.map((choiceId) => {
+        const indexedChoice = PROMPT_TAXONOMY_INDEX.choicesById.get(choiceId)
+        if (!indexedChoice) return undefined
+
+        return {
+          choiceId,
+          choiceLabel: promptModulesById.value.get(choiceId)?.title ?? choiceId,
+          groupLabel: indexedChoice.group.label,
+          domainId: indexedChoice.domain.id,
+          domainLabel: indexedChoice.domain.label,
+        }
+      }).filter((option): option is PromptSelectionRequirementOptionViewModel => (
+        option !== undefined
+      ))
+      if (!options.length) continue
+
+      requirementsByKey.set(requirementKey, {
+        key: requirementKey,
+        type: unmetRequirement.type,
+        blockedTargetLabels: [blockedTargetLabel],
+        options,
+      })
+    }
+  }
+
+  for (const indexedGroup of PROMPT_TAXONOMY_INDEX.groupsById.values()) {
+    if (indexedGroup.domain.id !== activeDomain.value?.id) continue
+
+    const hasSelectedAncestorPath = indexedGroup.ancestorChoiceIds.every(choiceId => (
+      selectedChoiceSet.value.has(choiceId)
+    ))
+    if (!hasSelectedAncestorPath) continue
+
+    recordSelectionRequirements(
+      indexedGroup.group.visibleWhen,
+      `选择组 · ${indexedGroup.group.label}`,
+    )
+    if (!visibleDomainGroupIds.value.has(indexedGroup.group.id)) continue
+
+    for (const choice of indexedGroup.group.choices) {
+      const choiceLabel = promptModulesById.value.get(choice.id)?.title ?? choice.id
+      recordSelectionRequirements(choice.visibleWhen, `选项 · ${choiceLabel}`)
+      recordSelectionRequirements(choice.enabledWhen, `选项 · ${choiceLabel}`)
+    }
+  }
+
+  return [...requirementsByKey.values()]
+})
 
 function getDomainIconPaths(domainId: string): readonly string[] {
   return DOMAIN_ICON_PATHS[domainId] ?? DOMAIN_ICON_PATHS['domain-composition'] ?? []
+}
+
+function getSelectionRequirementLabel(
+  requirementType: UnmetPromptSelectionRequirement['type'],
+): string {
+  if (requirementType === 'select-any') return '任选一项'
+  if (requirementType === 'remove-all') return '需要取消'
+  return '需要选择'
+}
+
+function getSelectionRequirementActionLabel(
+  requirementType: UnmetPromptSelectionRequirement['type'],
+): string {
+  return requirementType === 'remove-all' ? '前往调整' : '前往选择'
+}
+
+async function navigateToSelectionRequirement(
+  option: PromptSelectionRequirementOptionViewModel,
+) {
+  const indexedChoice = PROMPT_TAXONOMY_INDEX.choicesById.get(option.choiceId)
+  if (!indexedChoice) return
+
+  activateDomain(option.domainId)
+  collapsedGroupIds.delete(indexedChoice.group.id)
+  for (const ancestorChoiceId of indexedChoice.ancestorChoiceIds) {
+    const ancestorGroupId = PROMPT_TAXONOMY_INDEX.choicesById.get(ancestorChoiceId)?.group.id
+    if (ancestorGroupId) collapsedGroupIds.delete(ancestorGroupId)
+  }
+
+  await nextTick()
+  const targetChoice = selectorRoot.value?.querySelector<HTMLButtonElement>(
+    `[data-taxonomy-choice="${option.choiceId}"]`,
+  )
+  if (targetChoice) {
+    targetChoice.focus({ preventScroll: true })
+    targetChoice.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' })
+    return
+  }
+
+  selectorRoot.value?.querySelector<HTMLButtonElement>(
+    `[data-taxonomy-domain-id="${option.domainId}"]`,
+  )?.focus({ preventScroll: true })
 }
 
 function isChoicePathExpanded(indexedChoice: IndexedPromptTaxonomyChoice): boolean {
@@ -408,6 +543,7 @@ onBeforeUnmount(() => {
             v-for="(domain, domainIndex) in PROMPT_TAXONOMY_DOMAINS"
             :key="domain.id"
             :data-taxonomy-domain-index="domainIndex"
+            :data-taxonomy-domain-id="domain.id"
             class="taxonomy-domain-button"
             :class="{
               'is-active': activeDomain?.id === domain.id,
@@ -457,20 +593,6 @@ onBeforeUnmount(() => {
           </button>
         </div>
 
-        <footer class="taxonomy-rail-foot">
-          <span class="taxonomy-rail-foot-icon" aria-hidden="true">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-              <path d="M5 5h5M5 12h9M5 19h14" />
-              <circle cx="12" cy="5" r="2" />
-              <circle cx="16" cy="12" r="2" />
-              <circle cx="21" cy="19" r="2" />
-            </svg>
-          </span>
-          <span>
-            <strong>跨领域组合</strong>
-            <small>选择会实时写入右侧面板</small>
-          </span>
-        </footer>
       </nav>
 
       <main class="min-w-0">
@@ -497,6 +619,68 @@ onBeforeUnmount(() => {
               </button>
             </div>
 
+            <aside
+              v-if="activeDomainSelectionRequirements.length"
+              class="taxonomy-requirements"
+              :class="{ 'is-blocking': !visibleRootGroups.length }"
+              role="status"
+              aria-live="polite"
+            >
+              <div class="taxonomy-requirements-heading">
+                <span class="taxonomy-requirements-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7">
+                    <path d="M12 8v5M12 17h.01" />
+                    <path d="M10.3 3.8 2.4 18a2 2 0 0 0 1.8 3h15.6a2 2 0 0 0 1.8-3L13.7 3.8a2 2 0 0 0-3.4 0Z" />
+                  </svg>
+                </span>
+                <span>
+                  <strong>
+                    {{ visibleRootGroups.length ? '部分细化选项尚未开放' : '请先完成关联的上级选择' }}
+                  </strong>
+                  <small>以下列出需要前往的领域、选择组和具体选项。</small>
+                </span>
+              </div>
+
+              <div class="taxonomy-requirement-list">
+                <section
+                  v-for="requirement in activeDomainSelectionRequirements"
+                  :key="requirement.key"
+                  class="taxonomy-requirement"
+                >
+                  <div class="taxonomy-requirement-copy">
+                    <span class="taxonomy-requirement-state">
+                      {{ getSelectionRequirementLabel(requirement.type) }}
+                    </span>
+                    <span>
+                      解锁「{{ requirement.blockedTargetLabels.join('、') }}」
+                    </span>
+                  </div>
+                  <div class="taxonomy-requirement-options">
+                    <button
+                      v-for="option in requirement.options"
+                      :key="option.choiceId"
+                      class="taxonomy-requirement-option"
+                      :aria-label="`${getSelectionRequirementActionLabel(requirement.type)}：${option.domainLabel}领域，${option.groupLabel}，${option.choiceLabel}`"
+                      @click="navigateToSelectionRequirement(option)"
+                    >
+                      <span class="taxonomy-requirement-path">
+                        <small>{{ option.domainLabel }}</small>
+                        <span aria-hidden="true">/</span>
+                        <small>{{ option.groupLabel }}</small>
+                      </span>
+                      <strong>{{ option.choiceLabel }}</strong>
+                      <span class="taxonomy-requirement-action">
+                        {{ getSelectionRequirementActionLabel(requirement.type) }}
+                        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+                          <path d="m6 3.5 4.5 4.5L6 12.5" />
+                        </svg>
+                      </span>
+                    </button>
+                  </div>
+                </section>
+              </div>
+            </aside>
+
             <TransitionGroup
               name="taxonomy-group-list"
               tag="div"
@@ -519,9 +703,13 @@ onBeforeUnmount(() => {
                 @group-after-enter="handleGroupAfterEnter"
               />
 
-              <div v-if="!visibleRootGroups.length" key="empty" class="taxonomy-empty-state">
+              <div
+                v-if="!visibleRootGroups.length && !activeDomainSelectionRequirements.length"
+                key="empty"
+                class="taxonomy-empty-state"
+              >
                 <span class="taxonomy-empty-icon" aria-hidden="true">↳</span>
-                <span>请先完成关联的上级选择，再进入此领域细化。</span>
+                <span>此领域当前没有可用的细化选项。</span>
               </div>
             </TransitionGroup>
           </div>
@@ -565,8 +753,7 @@ onBeforeUnmount(() => {
 }
 
 .taxonomy-rail-heading,
-.taxonomy-rail-progress,
-.taxonomy-rail-foot {
+.taxonomy-rail-progress {
   display: none;
 }
 
@@ -581,8 +768,7 @@ onBeforeUnmount(() => {
 .taxonomy-domain-list::-webkit-scrollbar { display: none; }
 
 .taxonomy-rail-mark,
-.taxonomy-domain-icon,
-.taxonomy-rail-foot-icon {
+.taxonomy-domain-icon {
   display: flex;
   flex: none;
   align-items: center;
@@ -832,6 +1018,166 @@ onBeforeUnmount(() => {
   transition: transform var(--motion-normal) var(--ease-out-soft);
 }
 
+.taxonomy-requirements {
+  display: grid;
+  gap: 12px;
+  margin-top: 12px;
+  border: 1px solid color-mix(in srgb, var(--color-accent) 26%, var(--color-line));
+  border-radius: 12px;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--color-accentsoft) 68%, transparent), transparent 58%),
+    color-mix(in srgb, var(--color-well) 92%, var(--color-panel2));
+  padding: 12px;
+}
+
+.taxonomy-requirements.is-blocking {
+  min-height: 120px;
+  align-content: center;
+  border-style: dashed;
+}
+
+.taxonomy-requirements-heading {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.taxonomy-requirements-heading > span:last-child {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.taxonomy-requirements-heading strong {
+  color: var(--color-paper);
+  font-size: 11.5px;
+}
+
+.taxonomy-requirements-heading small {
+  color: var(--color-dim);
+  font-size: 9.5px;
+  line-height: 1.45;
+}
+
+.taxonomy-requirements-icon {
+  display: flex;
+  height: 30px;
+  width: 30px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--color-accentsoft) 84%, var(--color-well));
+  color: var(--color-accenthi);
+}
+
+.taxonomy-requirements-icon svg {
+  height: 16px;
+  width: 16px;
+}
+
+.taxonomy-requirement-list {
+  display: grid;
+  gap: 8px;
+}
+
+.taxonomy-requirement {
+  display: grid;
+  gap: 7px;
+  border-top: 1px solid color-mix(in srgb, var(--color-line) 76%, transparent);
+  padding-top: 8px;
+}
+
+.taxonomy-requirement-copy {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-fade);
+  font-size: 10px;
+}
+
+.taxonomy-requirement-state {
+  border-radius: 999px;
+  background: var(--color-accentsoft);
+  padding: 2px 6px;
+  color: var(--color-accenthi);
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+}
+
+.taxonomy-requirement-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(178px, 1fr));
+  gap: 6px;
+}
+
+.taxonomy-requirement-option {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 3px 8px;
+  border: 1px solid var(--color-line);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--color-panel2) 60%, var(--color-well));
+  padding: 7px 8px;
+  color: var(--color-paper);
+  text-align: left;
+  transition:
+    border-color var(--motion-fast) ease,
+    background var(--motion-fast) ease,
+    transform var(--motion-fast) var(--ease-out-soft);
+}
+
+.taxonomy-requirement-option:hover {
+  border-color: color-mix(in srgb, var(--color-accent) 45%, var(--color-line));
+  background: color-mix(in srgb, var(--color-accentsoft) 58%, var(--color-well));
+  transform: translateY(-1px);
+}
+
+.taxonomy-requirement-option:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.taxonomy-requirement-path {
+  display: flex;
+  grid-column: 1 / -1;
+  min-width: 0;
+  align-items: center;
+  gap: 4px;
+  overflow: hidden;
+  color: var(--color-dim);
+}
+
+.taxonomy-requirement-path small {
+  overflow: hidden;
+  font-size: 8.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.taxonomy-requirement-option > strong {
+  overflow: hidden;
+  font-size: 10.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.taxonomy-requirement-action {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  color: var(--color-accenthi);
+  font-size: 8.5px;
+  white-space: nowrap;
+}
+
+.taxonomy-requirement-action svg {
+  height: 11px;
+  width: 11px;
+}
+
 .taxonomy-empty-state {
   display: flex;
   min-height: 84px;
@@ -1031,33 +1377,6 @@ onBeforeUnmount(() => {
     color: var(--color-accenthi);
   }
 
-  .taxonomy-rail-foot {
-    display: grid;
-    grid-template-columns: 30px minmax(0, 1fr);
-    align-items: center;
-    gap: 8px;
-    border-top: 1px solid var(--color-line);
-    padding: 9px 3px 1px;
-  }
-
-  .taxonomy-rail-foot-icon {
-    height: 30px;
-    width: 30px;
-    border-radius: 9px;
-    background: var(--color-panel2);
-    color: var(--color-fade);
-  }
-
-  .taxonomy-rail-foot-icon svg { height: 16px; width: 16px; }
-
-  .taxonomy-rail-foot > span:last-child {
-    display: grid;
-    min-width: 0;
-    gap: 1px;
-  }
-
-  .taxonomy-rail-foot strong { font-size: 9.5px; font-weight: 600; }
-  .taxonomy-rail-foot small { overflow: hidden; color: var(--color-dim); font-size: 7.5px; text-overflow: ellipsis; white-space: nowrap; }
 }
 
 @media (max-width: 520px) {

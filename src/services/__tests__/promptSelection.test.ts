@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   clearPromptTaxonomyGroup,
   getPromptChoiceAvailability,
+  getUnmetPromptSelectionRequirements,
   getVisiblePromptTaxonomyGroups,
   normalizePromptSelections,
   togglePromptChoice,
@@ -18,6 +19,30 @@ function selectChoices(choiceIds: string[]): string[] {
 }
 
 describe('prompt taxonomy selection', () => {
+  it('reports the exact unmet choices for every selection condition type', () => {
+    expect(getUnmetPromptSelectionRequirements({
+      allOf: ['module-subject-person', 'module-subject-single'],
+      anyOf: ['module-style-photography', 'module-style-two-dimensional'],
+      noneOf: ['module-subject-hands', 'module-subject-feet-only'],
+    }, [
+      'module-subject-person',
+      'module-subject-hands',
+    ])).toEqual([
+      {
+        type: 'select-all',
+        choiceIds: ['module-subject-single'],
+      },
+      {
+        type: 'select-any',
+        choiceIds: ['module-style-photography', 'module-style-two-dimensional'],
+      },
+      {
+        type: 'remove-all',
+        choiceIds: ['module-subject-hands'],
+      },
+    ])
+  })
+
   it('reveals handheld controls progressively after selecting photography and platform', () => {
     let selectedChoiceIds = selectChoices(['module-style-photography'])
     expect(getVisiblePromptTaxonomyGroups('domain-medium', selectedChoiceIds).map(({ group }) => (

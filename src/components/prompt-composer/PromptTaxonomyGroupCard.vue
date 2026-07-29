@@ -247,6 +247,7 @@ function handleBranchAfterEnter(enteredElement: Element) {
               <button
                 v-for="choiceViewModel in choiceViewModels"
                 :key="choiceViewModel.choice.id"
+                :data-taxonomy-choice="choiceViewModel.choice.id"
                 class="taxonomy-choice"
                 :class="{
                   'is-selected': choiceViewModel.isSelected,

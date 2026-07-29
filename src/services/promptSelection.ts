@@ -11,6 +11,11 @@ export interface PromptChoiceAvailability {
   reason?: string
 }
 
+export interface UnmetPromptSelectionRequirement {
+  type: 'select-all' | 'select-any' | 'remove-all'
+  choiceIds: string[]
+}
+
 export interface PromptSelectionMutationResult {
   selectedChoiceIds: string[]
   removedChoiceIds: string[]
@@ -48,6 +53,47 @@ export function matchesPromptSelectionCondition(
   return satisfiesAllRequiredChoices
     && satisfiesAnyRequiredChoice
     && excludesForbiddenChoices
+}
+
+export function getUnmetPromptSelectionRequirements(
+  condition: PromptSelectionCondition | undefined,
+  selectedChoiceIds: Iterable<string>,
+): UnmetPromptSelectionRequirement[] {
+  if (!condition) return []
+
+  const selectedChoiceSet = createSelectedChoiceSet(selectedChoiceIds)
+  const requirements: UnmetPromptSelectionRequirement[] = []
+  const missingRequiredChoiceIds = condition.allOf?.filter(choiceId => (
+    !selectedChoiceSet.has(choiceId)
+  )) ?? []
+  if (missingRequiredChoiceIds.length) {
+    requirements.push({
+      type: 'select-all',
+      choiceIds: missingRequiredChoiceIds,
+    })
+  }
+
+  const hasAnyAlternativeSelected = condition.anyOf?.some(choiceId => (
+    selectedChoiceSet.has(choiceId)
+  )) ?? true
+  if (condition.anyOf?.length && !hasAnyAlternativeSelected) {
+    requirements.push({
+      type: 'select-any',
+      choiceIds: [...condition.anyOf],
+    })
+  }
+
+  const selectedForbiddenChoiceIds = condition.noneOf?.filter(choiceId => (
+    selectedChoiceSet.has(choiceId)
+  )) ?? []
+  if (selectedForbiddenChoiceIds.length) {
+    requirements.push({
+      type: 'remove-all',
+      choiceIds: selectedForbiddenChoiceIds,
+    })
+  }
+
+  return requirements
 }
 
 function isIndexedGroupVisible(
