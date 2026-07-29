@@ -65,8 +65,8 @@ export default {
     },
     {
       id: 'module-lens-macro-100mm',
-      label: '100mm 微距',
-      prompt: '使用全画幅等效百毫米等倍微距镜头，以接近一比一放大率记录微小结构，并限定极浅焦点范围',
+      label: '100mm 中长焦',
+      prompt: '使用全画幅等效一百毫米中长焦镜头，获得明确空间压缩和收敛视野，不在此项中强制微距放大率',
       sortOrder: 100,
     },
     {
@@ -116,6 +116,12 @@ export default {
       label: '变形宽幅',
       prompt: '使用变形宽银幕镜头，拍摄时水平压缩视野，展开后获得更宽的横向覆盖与椭圆形离焦光斑',
       sortOrder: 180,
+    },
+    {
+      id: 'module-lens-macro-capability',
+      label: '微距放大',
+      prompt: '使用具备接近一比一放大能力的微距光学系统记录微小结构，工作距离和焦点位置保持真实',
+      sortOrder: 190,
     },
   ],
 } satisfies PromptModuleAssetDefinition

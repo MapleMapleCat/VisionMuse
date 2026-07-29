@@ -4,6 +4,12 @@ import {
   PROMPT_MODULE_ASSETS,
   PROMPT_MODULE_CATEGORIES,
 } from '@/assets/prompt-modules'
+import {
+  PROMPT_TAXONOMY_CHOICE_COUNT,
+  PROMPT_TAXONOMY_DOMAINS,
+  PROMPT_TAXONOMY_INDEX,
+  type PromptSelectionCondition,
+} from '@/assets/prompt-taxonomy'
 import { PROMPT_MODULE_CATEGORY_KEYS } from '@/types'
 
 describe('prompt module assets', () => {
@@ -13,6 +19,16 @@ describe('prompt module assets', () => {
     expect(PROMPT_MODULE_CATEGORIES).toHaveLength(PROMPT_MODULE_CATEGORY_KEYS.length)
     expect(PROMPT_MODULE_ASSETS.every(asset => asset.modules.length >= 15)).toBe(true)
     expect(DEFAULT_PROMPT_MODULES.length).toBeGreaterThanOrEqual(200)
+  })
+
+  it('organizes every prompt module exactly once in the progressive taxonomy', () => {
+    const promptModuleIds = DEFAULT_PROMPT_MODULES.map(promptModule => promptModule.id)
+    const taxonomyChoiceIds = PROMPT_TAXONOMY_INDEX.orderedChoiceIds
+
+    expect(PROMPT_TAXONOMY_DOMAINS).toHaveLength(9)
+    expect(PROMPT_TAXONOMY_CHOICE_COUNT).toBe(DEFAULT_PROMPT_MODULES.length)
+    expect(new Set(taxonomyChoiceIds).size).toBe(taxonomyChoiceIds.length)
+    expect(new Set(taxonomyChoiceIds)).toEqual(new Set(promptModuleIds))
   })
 
   it('maps short labels to substantially longer precision prompts', () => {
@@ -46,6 +62,40 @@ describe('prompt module assets', () => {
     for (const asset of PROMPT_MODULE_ASSETS) {
       const hasSelectionGroups = asset.modules.some(promptModule => promptModule.selectionGroup)
       if (hasSelectionGroups) expect(asset.category.selectionMode).toBe('multiple')
+    }
+  })
+
+  it('uses valid hierarchical selection limits and references', () => {
+    const allChoiceIds = new Set(PROMPT_TAXONOMY_INDEX.orderedChoiceIds)
+
+    function expectConditionReferencesToExist(condition: PromptSelectionCondition | undefined) {
+      for (const referencedChoiceId of [
+        ...(condition?.allOf ?? []),
+        ...(condition?.anyOf ?? []),
+        ...(condition?.noneOf ?? []),
+      ]) {
+        expect(allChoiceIds.has(referencedChoiceId)).toBe(true)
+      }
+    }
+
+    for (const indexedGroup of PROMPT_TAXONOMY_INDEX.groupsById.values()) {
+      expect(indexedGroup.group.maxSelections).toBeGreaterThan(0)
+      expect(indexedGroup.group.maxSelections).toBeLessThanOrEqual(
+        indexedGroup.group.choices.length,
+      )
+      if (indexedGroup.group.selectionMode === 'single') {
+        expect(indexedGroup.group.maxSelections).toBe(1)
+      }
+      expectConditionReferencesToExist(indexedGroup.group.visibleWhen)
+    }
+
+    for (const indexedChoice of PROMPT_TAXONOMY_INDEX.choicesById.values()) {
+      expectConditionReferencesToExist(indexedChoice.choice.visibleWhen)
+      expectConditionReferencesToExist(indexedChoice.choice.enabledWhen)
+      for (const excludedChoiceId of indexedChoice.choice.excludes ?? []) {
+        expect(allChoiceIds.has(excludedChoiceId)).toBe(true)
+        expect(excludedChoiceId).not.toBe(indexedChoice.choice.id)
+      }
     }
   })
 })

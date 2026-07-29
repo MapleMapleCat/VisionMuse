@@ -11,26 +11,26 @@ export default {
   modules: [
     {
       id: 'module-subject-single',
-      label: '单人',
-      prompt: '画面中仅保留一个清晰、完整且可辨识的主要人物，不出现重复人物或无关人物',
+      label: '单主体',
+      prompt: '画面中仅设置一个清晰可辨的主要主体，不复制该主体，也不增加竞争主要地位的第二主体',
       sortOrder: 10,
     },
     {
       id: 'module-subject-pair',
-      label: '双人',
-      prompt: '画面中安排两位主要人物共同入镜，确保二者身份清晰、比例自然且互动关系可读',
+      label: '双主体',
+      prompt: '画面中设置两个主要主体，二者外形边界、相对尺度和空间位置均保持清楚可辨',
       sortOrder: 20,
     },
     {
       id: 'module-subject-group',
-      label: '小型群像',
-      prompt: '画面中安排三至五位人物组成小型群像，每个人物轮廓可辨且前后层次清楚',
+      label: '小型群体',
+      prompt: '画面中设置三至五个主要主体形成小型群体，每个主体轮廓可辨且前后遮挡关系清楚',
       sortOrder: 30,
     },
     {
       id: 'module-subject-back',
-      label: '人物背影',
-      prompt: '人物以背对镜头的方式入镜，面部不可见，头部、肩部与躯干朝向保持一致且轮廓清楚',
+      label: '背向镜头',
+      prompt: '主体背面朝向镜头所在方向，正面主要识别区域不可见，背部轮廓和朝向保持清楚',
       sortOrder: 40,
     },
     {
@@ -41,8 +41,8 @@ export default {
     },
     {
       id: 'module-subject-crowd',
-      label: '大型群像',
-      prompt: '画面中安排六位以上人物形成大型群像，个体分布彼此分离，前后遮挡关系清楚',
+      label: '大型群体',
+      prompt: '画面中设置六个以上主体形成大型群体，个体分布彼此可分辨，前后遮挡关系清楚',
       sortOrder: 60,
     },
     {
@@ -110,6 +110,36 @@ export default {
       label: '虚构生物',
       prompt: '以虚构生物作为主要视觉主体，固定其物种特征、肢体数量与身体连接方式',
       sortOrder: 170,
+    },
+    {
+      id: 'module-subject-person',
+      label: '人物主体',
+      prompt: '以人物作为主要视觉主体，保持真实一致的人体结构、身份特征和身体部位连接关系',
+      sortOrder: 180,
+    },
+    {
+      id: 'module-subject-interaction-conversation',
+      label: '交谈关系',
+      prompt: '多个主体之间形成明确交谈关系，身体朝向、距离和注意力共同指向正在进行的交流',
+      sortOrder: 190,
+    },
+    {
+      id: 'module-subject-interaction-cooperation',
+      label: '协作关系',
+      prompt: '多个主体围绕同一任务形成协作关系，动作分工清楚，并共享可辨识的操作目标',
+      sortOrder: 200,
+    },
+    {
+      id: 'module-subject-interaction-opposition',
+      label: '对立关系',
+      prompt: '多个主体形成明确对立关系，彼此朝向和空间距离体现张力，但肢体结构不发生混叠',
+      sortOrder: 210,
+    },
+    {
+      id: 'module-subject-interaction-parallel',
+      label: '并列关系',
+      prompt: '多个主体以并列关系共同出现，各自主体地位接近，排列有序且不强制发生互动',
+      sortOrder: 220,
     },
   ],
 } satisfies PromptModuleAssetDefinition

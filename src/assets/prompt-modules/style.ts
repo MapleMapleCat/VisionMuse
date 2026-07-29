@@ -117,5 +117,23 @@ export default {
       prompt: '采用物理渲染三维媒介，依据能量守恒计算材质与光照响应，保持几何、阴影和反射一致',
       sortOrder: 180,
     },
+    {
+      id: 'module-style-photography',
+      label: '摄影媒介',
+      prompt: '以真实相机摄影作为画面形成方式，遵循镜头投影、曝光、景深和现场拍摄的基本成像逻辑',
+      sortOrder: 190,
+    },
+    {
+      id: 'module-style-two-dimensional',
+      label: '二维绘画',
+      prompt: '以二维绘画或插画作为画面形成方式，通过平面笔触、线条或色块组织形体与空间',
+      sortOrder: 200,
+    },
+    {
+      id: 'module-style-three-dimensional',
+      label: '三维渲染',
+      prompt: '以三维数字场景和几何模型作为画面形成方式，保持体积、空间坐标与遮挡关系一致',
+      sortOrder: 210,
+    },
   ],
 } satisfies PromptModuleAssetDefinition

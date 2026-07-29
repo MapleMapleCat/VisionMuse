@@ -1,4 +1,5 @@
 import angleAsset from './angle'
+import captureAsset from './capture'
 import colorAsset from './color'
 import compositionAsset from './composition'
 import detailAsset from './detail'
@@ -20,6 +21,7 @@ export const PROMPT_MODULE_ASSETS: PromptModuleAssetDefinition[] = [
   poseAsset,
   expressionAsset,
   environmentAsset,
+  captureAsset,
   shotAsset,
   angleAsset,
   lensAsset,

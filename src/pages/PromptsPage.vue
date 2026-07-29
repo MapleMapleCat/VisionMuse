@@ -1,18 +1,24 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, reactive, ref } from 'vue'
+import { computed, nextTick, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import {
-  PROMPT_MODULE_CATEGORIES,
-  type PromptModuleCategoryDefinition,
-} from '@/assets/prompt-modules'
+import { PROMPT_TAXONOMY_CHOICE_COUNT } from '@/assets/prompt-taxonomy'
+import PromptTaxonomySelector from '@/components/prompt-composer/PromptTaxonomySelector.vue'
 import {
   composePrompt,
   createPromptCompositionInput,
 } from '@/services/promptComposition'
+import {
+  clearPromptTaxonomyDomain,
+  clearPromptTaxonomyGroup,
+  getSelectedPromptChoiceDetails,
+  togglePromptChoice,
+  type PromptSelectionMutationResult,
+  type SelectedPromptChoiceDetail,
+} from '@/services/promptSelection'
 import { usePromptModuleStore } from '@/stores/promptModules'
 import { useTemplateStore } from '@/stores/templates'
 import { useUiStore } from '@/stores/ui'
-import type { PromptModule, PromptModuleCategory, PromptTemplate } from '@/types'
+import type { PromptTemplate } from '@/types'
 
 const ui = useUiStore()
 const templateStore = useTemplateStore()
@@ -20,120 +26,72 @@ const promptModuleStore = usePromptModuleStore()
 const route = useRoute()
 const router = useRouter()
 
-function createEmptyModuleSelections(): Record<PromptModuleCategory, string[]> {
-  const selections = {} as Record<PromptModuleCategory, string[]>
-  for (const category of PROMPT_MODULE_CATEGORIES) selections[category.key] = []
-  return selections
-}
-
-function createCategoryCollapseState(): Record<PromptModuleCategory, boolean> {
-  const collapseState = {} as Record<PromptModuleCategory, boolean>
-  for (const category of PROMPT_MODULE_CATEGORIES) collapseState[category.key] = false
-  return collapseState
-}
-
 const activeView = ref<'modules' | 'templates'>('modules')
 const corePrompt = ref('')
-const selectedModuleIds = reactive<Record<PromptModuleCategory, string[]>>(
-  createEmptyModuleSelections(),
-)
-const collapsedCategories = reactive<Record<PromptModuleCategory, boolean>>(
-  createCategoryCollapseState(),
-)
+const selectedChoiceIds = ref<string[]>([])
 
-const selectedPromptModules = computed(() => PROMPT_MODULE_CATEGORIES.flatMap(category => (
-  selectedModuleIds[category.key]
-    .map(moduleId => promptModuleStore.promptModules.find(promptModule => promptModule.id === moduleId))
-    .filter((promptModule): promptModule is PromptModule => Boolean(promptModule))
-)))
+const selectedChoiceDetails = computed(() => getSelectedPromptChoiceDetails(
+  selectedChoiceIds.value,
+  promptModuleStore.promptModules,
+))
+const selectedPromptModules = computed(() => selectedChoiceDetails.value.map(
+  selectedChoiceDetail => selectedChoiceDetail.promptModule,
+))
 const promptCompositionInput = computed(() => createPromptCompositionInput(
   corePrompt.value,
-  selectedPromptModules.value,
+  selectedChoiceIds.value,
+  promptModuleStore.promptModules,
 ))
 const composedPrompt = computed(() => composePrompt(promptCompositionInput.value))
 const selectedModuleCount = computed(() => selectedPromptModules.value.length)
-const selectedCategoryCount = computed(() => PROMPT_MODULE_CATEGORIES.filter(category => (
-  selectedModuleIds[category.key].length > 0
-)).length)
+const selectedGroupCount = computed(() => new Set(
+  selectedChoiceDetails.value.map(selectedChoiceDetail => selectedChoiceDetail.group.id),
+).size)
 const canUseComposition = computed(() => corePrompt.value.trim().length > 0)
 
-function getModulesByCategory(category: PromptModuleCategory): PromptModule[] {
-  return promptModuleStore.getByCategory(category)
-}
-
-function getSelectedModulesByCategory(category: PromptModuleCategory): PromptModule[] {
-  return selectedModuleIds[category]
-    .map(moduleId => promptModuleStore.promptModules.find(promptModule => promptModule.id === moduleId))
-    .filter((promptModule): promptModule is PromptModule => Boolean(promptModule))
-}
-
-function isModuleSelected(promptModule: PromptModule): boolean {
-  return selectedModuleIds[promptModule.category].includes(promptModule.id)
-}
-
-function togglePromptModule(
-  category: PromptModuleCategoryDefinition,
-  promptModule: PromptModule,
+function applySelectionMutation(
+  result: PromptSelectionMutationResult,
+  announceRemovedChildren = false,
 ) {
-  const categorySelections = selectedModuleIds[category.key]
-  const selectedIndex = categorySelections.indexOf(promptModule.id)
-  if (selectedIndex >= 0) {
-    categorySelections.splice(selectedIndex, 1)
-    collapsedCategories[category.key] = false
+  if (result.blockedReason) {
+    ui.showToast(result.blockedReason)
     return
   }
-
-  if (category.selectionMode === 'single') {
-    selectedModuleIds[category.key] = [promptModule.id]
-    collapsedCategories[category.key] = true
-    return
+  selectedChoiceIds.value = result.selectedChoiceIds
+  if (announceRemovedChildren && result.removedChoiceIds.length > 1) {
+    ui.showToast(`已清除 ${result.removedChoiceIds.length} 项不再适用的下级选择`)
   }
-
-  if (promptModule.selectionGroup) {
-    const sameGroupSelectionIndex = categorySelections.findIndex(selectedModuleId => (
-      promptModuleStore.promptModules.find(module => module.id === selectedModuleId)?.selectionGroup
-        === promptModule.selectionGroup
-    ))
-    if (sameGroupSelectionIndex >= 0) {
-      categorySelections.splice(sameGroupSelectionIndex, 1, promptModule.id)
-      collapsedCategories[category.key] = categorySelections.length >= category.maxSelections
-      return
-    }
-  }
-
-  if (categorySelections.length >= category.maxSelections) {
-    ui.showToast(`${category.label}最多选择 ${category.maxSelections} 项`)
-    return
-  }
-  categorySelections.push(promptModule.id)
-  collapsedCategories[category.key] = categorySelections.length >= category.maxSelections
 }
 
-function clearCategory(category: PromptModuleCategory) {
-  selectedModuleIds[category] = []
-  collapsedCategories[category] = false
+function toggleTaxonomyChoice(choiceId: string) {
+  const result = togglePromptChoice(selectedChoiceIds.value, choiceId)
+  applySelectionMutation(result, true)
 }
 
-function toggleCategoryCollapse(category: PromptModuleCategory) {
-  collapsedCategories[category] = !collapsedCategories[category]
+function clearTaxonomyGroup(groupId: string) {
+  applySelectionMutation(clearPromptTaxonomyGroup(selectedChoiceIds.value, groupId), true)
+}
+
+function clearTaxonomyDomain(domainId: string) {
+  applySelectionMutation(clearPromptTaxonomyDomain(selectedChoiceIds.value, domainId), true)
 }
 
 function clearComposition() {
   corePrompt.value = ''
-  for (const category of PROMPT_MODULE_CATEGORIES) clearCategory(category.key)
+  selectedChoiceIds.value = []
 }
 
-function removePromptModule(promptModule: PromptModule) {
-  const categorySelections = selectedModuleIds[promptModule.category]
-  const selectedIndex = categorySelections.indexOf(promptModule.id)
-  if (selectedIndex >= 0) {
-    categorySelections.splice(selectedIndex, 1)
-    collapsedCategories[promptModule.category] = false
-  }
+function removePromptChoice(choiceId: string) {
+  applySelectionMutation(togglePromptChoice(selectedChoiceIds.value, choiceId), true)
 }
 
-function getCategoryLabel(category: PromptModuleCategory): string {
-  return PROMPT_MODULE_CATEGORIES.find(definition => definition.key === category)?.label ?? category
+function getSelectionPath(selectedChoiceDetail: SelectedPromptChoiceDetail): string {
+  const ancestorChoiceLabels = selectedChoiceDetail.ancestorChoiceIds
+    .map(choiceId => promptModuleStore.promptModules.find(promptModule => (
+      promptModule.id === choiceId
+    ))?.title)
+    .filter((label): label is string => Boolean(label))
+  return [...ancestorChoiceLabels, selectedChoiceDetail.promptModule.title].join(' / ')
 }
 
 function focusCorePrompt() {
@@ -245,20 +203,18 @@ onMounted(() => {
       <div class="mt-1.5 flex flex-wrap items-end gap-3">
         <h1 class="display text-[27px] leading-none">提示词模块</h1>
         <span class="pb-0.5 font-mono text-[10.5px] text-dim">
-          {{ promptModuleStore.promptModules.length }} 个原子片段 · 不含预设 · 不自动搭配
+          {{ PROMPT_TAXONOMY_CHOICE_COUNT }} 个分级选项 · 条件展开 · 不自动搭配
         </span>
       </div>
-      <div class="seg mt-4 w-full max-w-[340px]" role="tablist" aria-label="提示词工具">
+      <div class="seg mt-4 w-full max-w-[340px]" aria-label="提示词工具">
         <button
           :class="{ on: activeView === 'modules' }"
-          :aria-selected="activeView === 'modules'"
-          role="tab"
+          :aria-pressed="activeView === 'modules'"
           @click="activeView = 'modules'"
-        >原子模块</button>
+        >分级模块</button>
         <button
           :class="{ on: activeView === 'templates' }"
-          :aria-selected="activeView === 'templates'"
-          role="tab"
+          :aria-pressed="activeView === 'templates'"
           @click="activeView = 'templates'"
         >完整提示词</button>
       </div>
@@ -266,81 +222,14 @@ onMounted(() => {
 
     <div class="min-h-0 flex-1 overflow-y-auto px-6 pb-44 pt-5">
       <div v-if="activeView === 'modules'" class="mx-auto grid max-w-[1220px] gap-5 xl:grid-cols-[minmax(0,1fr)_370px]">
-        <div class="order-2 min-w-0 space-y-4 xl:order-1">
-          <section
-            v-for="(category, categoryIndex) in PROMPT_MODULE_CATEGORIES"
-            :key="category.key"
-            class="module-category rise-in rounded-2xl border border-line bg-well p-5 shadow-card"
-            :class="{ 'is-collapsed': collapsedCategories[category.key] }"
-            :style="{ '--stagger': categoryIndex }"
-          >
-            <div
-              class="flex flex-wrap items-start justify-between gap-3"
-              :class="{ 'mb-3': !collapsedCategories[category.key] }"
-            >
-              <div class="flex items-center gap-2.5">
-                <span class="category-index">{{ String(categoryIndex + 1).padStart(2, '0') }}</span>
-                <h2 class="text-[14px] font-semibold">{{ category.label }}</h2>
-              </div>
-              <div class="flex items-center gap-2">
-                <span class="font-mono text-[9.5px] text-dim">
-                  {{ selectedModuleIds[category.key].length }} / {{ category.maxSelections }}
-                </span>
-                <button
-                  v-if="selectedModuleIds[category.key].length"
-                  class="module-icon-button"
-                  :class="{ 'is-expanded': !collapsedCategories[category.key] }"
-                  :aria-expanded="!collapsedCategories[category.key]"
-                  :aria-label="collapsedCategories[category.key] ? `展开${category.label}` : `折叠${category.label}`"
-                  :title="collapsedCategories[category.key] ? '展开修改' : '折叠分类'"
-                  @click="toggleCategoryCollapse(category.key)"
-                >
-                  <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
-                    <path d="m6 9 6 6 6-6" />
-                  </svg>
-                </button>
-                <button
-                  v-if="selectedModuleIds[category.key].length"
-                  class="module-icon-button is-danger"
-                  :aria-label="`清除${category.label}选择`"
-                  title="清除选择"
-                  @click="clearCategory(category.key)"
-                >
-                  <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
-                    <path d="m8 8 8 8M16 8l-8 8" />
-                  </svg>
-                </button>
-              </div>
-            </div>
-
-            <div
-              v-if="collapsedCategories[category.key]"
-              class="mt-2 flex flex-wrap gap-1.5"
-            >
-              <span
-                v-for="promptModule in getSelectedModulesByCategory(category.key)"
-                :key="promptModule.id"
-                class="collapsed-selection"
-              >{{ promptModule.title }}</span>
-            </div>
-
-            <div v-else class="grid grid-cols-2 gap-1.5 sm:grid-cols-3 lg:grid-cols-5">
-              <button
-                v-for="promptModule in getModulesByCategory(category.key)"
-                :key="promptModule.id"
-                class="module-option"
-                :class="{ 'is-selected': isModuleSelected(promptModule) }"
-                :aria-pressed="isModuleSelected(promptModule)"
-                :title="promptModule.content"
-                @click="togglePromptModule(category, promptModule)"
-              >
-                <span class="module-option-title">
-                  <span>{{ promptModule.title }}</span>
-                  <span v-if="isModuleSelected(promptModule)" aria-hidden="true">✓</span>
-                </span>
-              </button>
-            </div>
-          </section>
+        <div class="order-2 min-w-0 xl:order-1">
+          <PromptTaxonomySelector
+            :prompt-modules="promptModuleStore.promptModules"
+            :selected-choice-ids="selectedChoiceIds"
+            @toggle-choice="toggleTaxonomyChoice"
+            @clear-group="clearTaxonomyGroup"
+            @clear-domain="clearTaxonomyDomain"
+          />
         </div>
 
         <aside class="order-1 xl:order-2 xl:sticky xl:top-5 xl:self-start">
@@ -357,11 +246,14 @@ onMounted(() => {
               <div class="flex items-start justify-between gap-3">
                 <div>
                   <p class="field-label">Core content</p>
-                  <h3 class="mt-1 text-[13px] font-semibold">具体人物、对象或事件</h3>
+                  <label for="prompt-core-content" class="mt-1 block text-[13px] font-semibold">
+                    具体人物、对象或事件
+                  </label>
                 </div>
                 <span class="core-content-badge">非模块</span>
               </div>
               <input
+                id="prompt-core-content"
                 v-model="corePrompt"
                 data-core-prompt
                 class="input mt-3 !py-3 text-[13px]"
@@ -377,21 +269,21 @@ onMounted(() => {
                 <h3 class="mt-1 text-[13px] font-semibold">选择的提示词片段</h3>
               </div>
               <span class="rounded-full bg-accentsoft px-2.5 py-1 font-mono text-[10px] text-accenthi">
-                {{ selectedModuleCount }} 项 · {{ selectedCategoryCount }} 类
+                {{ selectedModuleCount }} 项 · {{ selectedGroupCount }} 组
               </span>
             </div>
 
             <div class="mt-3 min-h-24 rounded-xl border border-line bg-ink/45 p-3">
-              <div v-if="selectedPromptModules.length" class="flex flex-wrap gap-1.5">
+              <div v-if="selectedChoiceDetails.length" class="flex flex-wrap gap-1.5">
                 <button
-                  v-for="promptModule in selectedPromptModules"
-                  :key="promptModule.id"
+                  v-for="selectedChoiceDetail in selectedChoiceDetails"
+                  :key="selectedChoiceDetail.choiceId"
                   class="track-segment"
-                  :title="`移除${promptModule.title}`"
-                  @click="removePromptModule(promptModule)"
+                  :title="`移除${getSelectionPath(selectedChoiceDetail)}`"
+                  @click="removePromptChoice(selectedChoiceDetail.choiceId)"
                 >
-                  <small>{{ getCategoryLabel(promptModule.category) }}</small>
-                  {{ promptModule.title }}
+                  <small>{{ selectedChoiceDetail.group.outputLabel }}</small>
+                  {{ getSelectionPath(selectedChoiceDetail) }}
                   <span aria-hidden="true">×</span>
                 </button>
               </div>
@@ -489,84 +381,6 @@ onMounted(() => {
 </template>
 
 <style scoped>
-.module-category {
-  transition: padding 0.18s var(--ease-out-soft), border-color 0.16s, background 0.16s;
-}
-.module-category.is-collapsed {
-  border-color: var(--color-line2);
-  padding: 12px 16px;
-}
-.category-index {
-  font-family: var(--font-mono);
-  font-size: 9px;
-  color: var(--color-dim);
-}
-.module-icon-button {
-  display: inline-flex;
-  width: 25px;
-  height: 25px;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid var(--color-line);
-  border-radius: 7px;
-  color: var(--color-dim);
-  transition: border-color 0.16s, background 0.16s, color 0.16s;
-}
-.module-icon-button:hover {
-  border-color: var(--color-line2);
-  background: color-mix(in srgb, var(--color-paper) 5%, transparent);
-  color: var(--color-paper);
-}
-.module-icon-button.is-danger:hover {
-  border-color: color-mix(in srgb, var(--color-red) 55%, var(--color-line));
-  background: color-mix(in srgb, var(--color-red) 10%, transparent);
-  color: var(--color-red);
-}
-.module-icon-button svg {
-  width: 13px;
-  height: 13px;
-  transition: transform 0.18s var(--ease-out-soft);
-}
-.module-icon-button.is-expanded svg { transform: rotate(180deg); }
-.module-option {
-  display: flex;
-  min-height: 34px;
-  flex-direction: column;
-  border: 1px solid var(--color-line);
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--color-ink) 38%, var(--color-well));
-  padding: 7px 9px;
-  text-align: left;
-  transition: border-color 0.16s, background 0.16s, transform 0.18s var(--ease-out-soft), box-shadow 0.16s;
-}
-.module-option:hover {
-  border-color: var(--color-line2);
-  transform: translateY(-1px);
-  box-shadow: var(--shadow-card);
-}
-.module-option.is-selected {
-  border-color: var(--color-accent);
-  background: var(--color-accentsoft);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-accent) 18%, transparent);
-}
-.module-option-title {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  font-size: 11.5px;
-  font-weight: 600;
-  color: var(--color-paper);
-}
-.module-option.is-selected .module-option-title { color: var(--color-accenthi); }
-.collapsed-selection {
-  border: 1px solid color-mix(in srgb, var(--color-accent) 42%, var(--color-line));
-  border-radius: 999px;
-  background: var(--color-accentsoft);
-  padding: 3px 8px;
-  font-size: 10.5px;
-  color: var(--color-accenthi);
-}
 .composer-preview { background: color-mix(in srgb, var(--color-well) 94%, var(--color-accentsoft)); }
 .core-content-panel {
   border: 1px solid var(--color-paper);

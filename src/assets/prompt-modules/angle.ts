@@ -11,20 +11,20 @@ export default {
   modules: [
     {
       id: 'module-angle-eye',
-      label: '平视',
-      prompt: '摄影机与主体主要视觉中心保持同一高度，以自然平视角度拍摄，避免明显俯视或仰视变形',
+      label: '眼平高度',
+      prompt: '摄影机镜头中心与主体主要视觉中心保持近似同一高度，不在此项中附加向上或向下的俯仰角度',
       sortOrder: 10,
     },
     {
       id: 'module-angle-low',
-      label: '低机位',
-      prompt: '摄影机位于主体视觉中心下方并向上拍摄，形成明确仰视关系，强化主体的高度与力量感',
+      label: '低于主体',
+      prompt: '摄影机镜头中心位于主体主要视觉中心下方，机位高度关系明确，俯仰方向由独立角度约束决定',
       sortOrder: 20,
     },
     {
       id: 'module-angle-high',
-      label: '高机位',
-      prompt: '摄影机位于主体视觉中心上方并向下拍摄，形成明确俯视关系，同时保持主体结构可辨',
+      label: '高于主体',
+      prompt: '摄影机镜头中心位于主体主要视觉中心上方，机位高度关系明确，俯仰方向由独立角度约束决定',
       sortOrder: 30,
     },
     {
@@ -71,14 +71,14 @@ export default {
     },
     {
       id: 'module-angle-ground-level',
-      label: '贴地平拍',
-      prompt: '摄影机镜头中心贴近承载表面，光轴基本平行于该表面，以极低高度水平观察主体',
+      label: '贴地高度',
+      prompt: '摄影机镜头中心贴近承载表面，以极低位置观察主体，光轴俯仰方向由独立角度约束决定',
       sortOrder: 110,
     },
     {
       id: 'module-angle-waist-level',
       label: '腰平机位',
-      prompt: '摄影机保持在人物腰部或主体中下段高度，光轴水平指向主体，不附加明显向上或向下倾斜',
+      prompt: '摄影机保持在人物腰部或主体中下段高度，机位位置明确，光轴俯仰方向由独立角度约束决定',
       sortOrder: 120,
     },
     {
@@ -116,6 +116,24 @@ export default {
       label: '轴测视角',
       prompt: '摄影机从主体上方的前侧方向观察，使顶面与两个相邻侧面同时可见，三个方向均明确展开',
       sortOrder: 180,
+    },
+    {
+      id: 'module-angle-level-pitch',
+      label: '水平拍摄',
+      prompt: '摄影机光轴保持水平，不向上仰起或向下俯压，垂直结构在取景方向上保持自然关系',
+      sortOrder: 190,
+    },
+    {
+      id: 'module-angle-upward-pitch',
+      label: '仰角拍摄',
+      prompt: '摄影机光轴明确向上仰起，以低处朝高处观察主体，同时保持机身横滚角度独立可控',
+      sortOrder: 200,
+    },
+    {
+      id: 'module-angle-downward-pitch',
+      label: '俯角拍摄',
+      prompt: '摄影机光轴明确向下俯压，以高处朝低处观察主体，同时保持机身横滚角度独立可控',
+      sortOrder: 210,
     },
   ],
 } satisfies PromptModuleAssetDefinition

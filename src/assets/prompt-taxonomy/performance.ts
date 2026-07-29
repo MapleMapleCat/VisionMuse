@@ -1,0 +1,148 @@
+import { createPromptChoices } from './helpers'
+import type { PromptSelectionCondition, PromptTaxonomyDomainDefinition } from './types'
+
+const PERSON_COMPATIBLE_CONDITION = {
+  allOf: ['module-subject-person'],
+  noneOf: ['module-subject-hands', 'module-subject-feet-only'],
+} satisfies PromptSelectionCondition
+
+export default {
+  id: 'domain-performance',
+  label: '人物表现',
+  description: '人物动作、手臂、头部、表情和视线分别控制，不再挤在同一个单选类别中。',
+  sortOrder: 20,
+  groups: [
+    {
+      id: 'group-performance-body-state',
+      label: '身体状态',
+      description: '选择人物当前最主要的全身姿态或运动状态。',
+      outputLabel: '身体状态',
+      sortOrder: 10,
+      selectionMode: 'single',
+      maxSelections: 1,
+      visibleWhen: PERSON_COMPATIBLE_CONDITION,
+      choices: [
+        {
+          id: 'module-pose-standing',
+          sortOrder: 10,
+          children: [
+            {
+              id: 'group-performance-standing-balance',
+              label: '站立承重方式',
+              description: '选择普通站立后，可以继续细化脚部承重和平衡方式。',
+              outputLabel: '站立方式',
+              sortOrder: 10,
+              selectionMode: 'single',
+              maxSelections: 1,
+              choices: createPromptChoices([
+                'module-pose-one-leg-balance',
+                'module-pose-tiptoe',
+              ]),
+            },
+          ],
+        },
+        ...createPromptChoices([
+          'module-pose-seated',
+          'module-pose-kneeling',
+          'module-pose-squatting',
+          'module-pose-supine',
+          'module-pose-prone',
+          'module-pose-side-lying',
+          'module-pose-curled-up',
+          'module-pose-walking',
+          'module-pose-running',
+          'module-pose-jumping',
+          'module-pose-crawling',
+        ], 20),
+      ],
+    },
+    {
+      id: 'group-performance-arm-gesture',
+      label: '手臂与手势',
+      description: '手臂动作独立于站立、坐姿或运动状态，可以与全身姿态组合。',
+      outputLabel: '手臂动作',
+      sortOrder: 20,
+      selectionMode: 'single',
+      maxSelections: 1,
+      visibleWhen: PERSON_COMPATIBLE_CONDITION,
+      choices: createPromptChoices([
+        'module-pose-arms-crossed',
+        'module-pose-hands-on-hips',
+        'module-pose-hands-behind-back',
+        'module-pose-reaching-forward',
+        'module-pose-arm-raised',
+      ]),
+    },
+    {
+      id: 'group-performance-head',
+      label: '头部动作',
+      description: '头部动作与主体整体朝向分开控制。',
+      outputLabel: '头部动作',
+      sortOrder: 30,
+      selectionMode: 'single',
+      maxSelections: 1,
+      visibleWhen: PERSON_COMPATIBLE_CONDITION,
+      choices: createPromptChoices(['module-pose-turning']),
+    },
+    {
+      id: 'group-performance-expression',
+      label: '面部表情',
+      description: '只规定可见面部情绪，不同时决定视线方向。',
+      outputLabel: '人物表情',
+      sortOrder: 40,
+      selectionMode: 'single',
+      maxSelections: 1,
+      visibleWhen: PERSON_COMPATIBLE_CONDITION,
+      choices: createPromptChoices([
+        'module-expression-calm',
+        'module-expression-smile',
+        'module-expression-serious',
+        'module-expression-laughter',
+        'module-expression-sadness',
+        'module-expression-anger',
+        'module-expression-surprise',
+        'module-expression-fear',
+        'module-expression-shyness',
+        'module-expression-disgust',
+        'module-expression-confusion',
+        'module-expression-anxiety',
+        'module-expression-fatigue',
+      ]),
+    },
+    {
+      id: 'group-performance-gaze',
+      label: '眼部与视线',
+      description: '闭眼和各类视线方向属于同一排他选择组。',
+      outputLabel: '眼部与视线',
+      sortOrder: 50,
+      selectionMode: 'single',
+      maxSelections: 1,
+      visibleWhen: PERSON_COMPATIBLE_CONDITION,
+      choices: [
+        ...createPromptChoices([
+          'module-expression-camera',
+          'module-expression-offscreen',
+          'module-expression-downward-gaze',
+          'module-expression-upward-gaze',
+          'module-expression-eyes-closed',
+          'module-expression-in-frame-gaze',
+        ]),
+        {
+          id: 'module-expression-mutual-gaze',
+          sortOrder: 70,
+          enabledWhen: {
+            anyOf: [
+              'module-subject-pair',
+              'module-subject-group',
+              'module-subject-crowd',
+            ],
+          },
+        },
+        ...createPromptChoices([
+          'module-expression-sidelong-gaze',
+          'module-expression-unfocused-gaze',
+        ], 80),
+      ],
+    },
+  ],
+} satisfies PromptTaxonomyDomainDefinition

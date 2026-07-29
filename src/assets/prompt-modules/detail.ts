@@ -113,5 +113,29 @@ export default {
       sortOrder: 170,
       selectionGroup: 'global-surface-finish',
     },
+    {
+      id: 'module-detail-target-subject',
+      label: '作用于主体',
+      prompt: '将后续材质与表面处理约束明确作用于主要主体，不扩散到背景和无关环境表面',
+      sortOrder: 180,
+    },
+    {
+      id: 'module-detail-target-clothing',
+      label: '作用于服装',
+      prompt: '将后续材质与表面处理约束明确作用于人物服装及其可见配件，不改变皮肤与背景材质',
+      sortOrder: 190,
+    },
+    {
+      id: 'module-detail-target-prop',
+      label: '作用于道具',
+      prompt: '将后续材质与表面处理约束明确作用于主体正在使用或邻近的主要道具',
+      sortOrder: 200,
+    },
+    {
+      id: 'module-detail-target-background',
+      label: '作用于背景',
+      prompt: '将后续材质与表面处理约束明确作用于背景建筑、地面或环境结构，不改变主要主体表面',
+      sortOrder: 210,
+    },
   ],
 } satisfies PromptModuleAssetDefinition

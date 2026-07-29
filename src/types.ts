@@ -138,6 +138,7 @@ export const PROMPT_MODULE_CATEGORY_KEYS = [
   'pose',
   'expression',
   'environment',
+  'capture',
   'shot',
   'angle',
   'lens',

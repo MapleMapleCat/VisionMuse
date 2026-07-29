@@ -1,15 +1,8 @@
-import { PROMPT_MODULE_CATEGORIES } from '@/assets/prompt-modules'
-import { PROMPT_MODULE_CATEGORY_KEYS, type PromptModule, type PromptModuleCategory } from '@/types'
-
-const CATEGORY_ORDER = new Map(
-  PROMPT_MODULE_CATEGORY_KEYS.map((category, categoryIndex) => [category, categoryIndex]),
-)
-const CATEGORY_LABELS = new Map(
-  PROMPT_MODULE_CATEGORIES.map(category => [category.key, category.label]),
-)
+import { getSelectedPromptChoiceDetails } from '@/services/promptSelection'
+import type { PromptModule } from '@/types'
 
 export interface PromptConstraintInput {
-  category: PromptModuleCategory
+  category: string
   label: string
   prompts: string[]
 }
@@ -28,37 +21,32 @@ function normalizePromptSegment(segment: string): string {
 
 export function createPromptCompositionInput(
   overview: string,
-  selectedModules: PromptModule[],
+  selectedChoiceIds: Iterable<string>,
+  promptModules: PromptModule[],
 ): PromptCompositionInput {
-  const orderedModules = [...selectedModules].sort((firstModule, secondModule) => {
-    const categoryDifference = (CATEGORY_ORDER.get(firstModule.category) ?? 0)
-      - (CATEGORY_ORDER.get(secondModule.category) ?? 0)
-    return categoryDifference || firstModule.sortOrder - secondModule.sortOrder
-  })
+  const selectedChoiceDetails = getSelectedPromptChoiceDetails(selectedChoiceIds, promptModules)
+  const constraintsByGroupId = new Map<string, PromptConstraintInput>()
 
-  const promptsByCategory = new Map<PromptModuleCategory, string[]>()
-  for (const promptModule of orderedModules) {
-    const normalizedPrompt = normalizePromptSegment(promptModule.content)
+  for (const selectedChoiceDetail of selectedChoiceDetails) {
+    const normalizedPrompt = normalizePromptSegment(selectedChoiceDetail.promptModule.content)
     if (!normalizedPrompt) continue
 
-    const categoryPrompts = promptsByCategory.get(promptModule.category) ?? []
-    categoryPrompts.push(normalizedPrompt)
-    promptsByCategory.set(promptModule.category, categoryPrompts)
-  }
+    const existingConstraint = constraintsByGroupId.get(selectedChoiceDetail.group.id)
+    if (existingConstraint) {
+      existingConstraint.prompts.push(normalizedPrompt)
+      continue
+    }
 
-  const constraints = PROMPT_MODULE_CATEGORY_KEYS.flatMap(category => {
-    const categoryPrompts = promptsByCategory.get(category)
-    if (!categoryPrompts?.length) return []
-    return [{
-      category,
-      label: CATEGORY_LABELS.get(category) ?? category,
-      prompts: categoryPrompts,
-    }]
-  })
+    constraintsByGroupId.set(selectedChoiceDetail.group.id, {
+      category: selectedChoiceDetail.group.id,
+      label: selectedChoiceDetail.group.outputLabel,
+      prompts: [normalizedPrompt],
+    })
+  }
 
   return {
     overview: normalizePromptSegment(overview),
-    constraints,
+    constraints: [...constraintsByGroupId.values()],
   }
 }
 

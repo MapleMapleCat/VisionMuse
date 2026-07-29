@@ -35,8 +35,8 @@ export default {
     },
     {
       id: 'module-pose-turning',
-      label: '侧身回头',
-      prompt: '人物身体朝向一侧并自然回头，肩部、颈部与头部转动关系连贯，避免不合理扭曲',
+      label: '自然回头',
+      prompt: '人物在躯干朝向保持不变的前提下自然转动头部，颈部旋转连续，肩部不随头部过度扭转',
       sortOrder: 50,
     },
     {

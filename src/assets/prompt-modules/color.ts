@@ -11,26 +11,26 @@ export default {
   modules: [
     {
       id: 'module-color-natural',
-      label: '自然色彩',
-      prompt: '采用接近真实环境观感的自然色彩，白平衡准确，物体固有色与材质颜色可信，避免明显偏色',
+      label: '自然白平衡',
+      prompt: '采用中性自然白平衡，使灰色保持中性，物体固有色与材质颜色可信，不增加整体冷暖偏移',
       sortOrder: 10,
     },
     {
       id: 'module-color-warm',
-      label: '低饱和暖调',
-      prompt: '采用低饱和暖色调，以柔和米色、棕色和暖灰为主，控制色彩浓度并保持层次清晰',
+      label: '暖色倾向',
+      prompt: '让整体白平衡和主要中性色轻微偏暖，暖色倾向明确，但不在此项中限定饱和度或明度',
       sortOrder: 20,
     },
     {
       id: 'module-color-cool',
-      label: '低饱和冷调',
-      prompt: '采用低饱和冷色调，以蓝灰、青灰和中性暗色为主，保持克制、统一且不过度偏蓝',
+      label: '冷色倾向',
+      prompt: '让整体白平衡和主要中性色轻微偏冷，冷色倾向明确，但不在此项中限定饱和度或明度',
       sortOrder: 30,
     },
     {
       id: 'module-color-vivid',
-      label: '高饱和撞色',
-      prompt: '采用高饱和对比配色，以两至三种明确互补色形成视觉冲击，同时保持主体层级和颜色边界清楚',
+      label: '高饱和度',
+      prompt: '整体使用高饱和度色彩，主要颜色保持鲜明浓度，同时避免通道溢出和颜色边界污染',
       sortOrder: 40,
     },
     {
@@ -95,14 +95,14 @@ export default {
     },
     {
       id: 'module-color-high-luminance',
-      label: '高明低彩',
-      prompt: '整体采用高明度、低饱和配色，最暗区域不低于中灰，依靠细微明度差而非浓色分层',
+      label: '高明度',
+      prompt: '整体采用高明度分布，大部分区域位于中灰以上，并通过细微亮度差维持结构层次',
       sortOrder: 150,
     },
     {
       id: 'module-color-low-luminance',
-      label: '低明浓彩',
-      prompt: '整体采用低明度、中高饱和配色，亮色面积控制在一成以内，以深色层级维持可读性',
+      label: '低明度',
+      prompt: '整体采用低明度分布，大部分区域位于中灰以下，以深色层级维持可读性并限制高亮面积',
       sortOrder: 160,
     },
     {
@@ -110,6 +110,24 @@ export default {
       label: '中性点缀',
       prompt: '画面八成以上使用黑白灰与低彩中性色，仅保留一种高饱和点缀色集中于关键区域',
       sortOrder: 170,
+    },
+    {
+      id: 'module-color-low-saturation',
+      label: '低饱和度',
+      prompt: '整体降低色彩饱和度，保留可辨色相但使颜色趋于克制，不改变既定冷暖倾向和明度结构',
+      sortOrder: 180,
+    },
+    {
+      id: 'module-color-medium-saturation',
+      label: '中等饱和度',
+      prompt: '整体保持中等饱和度，颜色清楚但不过分浓烈，在自然还原与风格化色彩之间保持平衡',
+      sortOrder: 190,
+    },
+    {
+      id: 'module-color-medium-luminance',
+      label: '中等明度',
+      prompt: '整体以中等明度为主，同时保留必要高光和暗部，使亮度分布均衡且结构易于辨识',
+      sortOrder: 200,
     },
   ],
 } satisfies PromptModuleAssetDefinition
