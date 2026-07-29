@@ -23,10 +23,19 @@ function createEmptyModuleSelections(): Record<PromptModuleCategory, string[]> {
   return selections
 }
 
+function createCategoryCollapseState(): Record<PromptModuleCategory, boolean> {
+  const collapseState = {} as Record<PromptModuleCategory, boolean>
+  for (const category of PROMPT_MODULE_CATEGORIES) collapseState[category.key] = false
+  return collapseState
+}
+
 const activeView = ref<'modules' | 'templates'>('modules')
 const corePrompt = ref('')
 const selectedModuleIds = reactive<Record<PromptModuleCategory, string[]>>(
   createEmptyModuleSelections(),
+)
+const collapsedCategories = reactive<Record<PromptModuleCategory, boolean>>(
+  createCategoryCollapseState(),
 )
 
 const selectedPromptModules = computed(() => PROMPT_MODULE_CATEGORIES.flatMap(category => (
@@ -45,6 +54,12 @@ function getModulesByCategory(category: PromptModuleCategory): PromptModule[] {
   return promptModuleStore.getByCategory(category)
 }
 
+function getSelectedModulesByCategory(category: PromptModuleCategory): PromptModule[] {
+  return selectedModuleIds[category]
+    .map(moduleId => promptModuleStore.promptModules.find(promptModule => promptModule.id === moduleId))
+    .filter((promptModule): promptModule is PromptModule => Boolean(promptModule))
+}
+
 function isModuleSelected(promptModule: PromptModule): boolean {
   return selectedModuleIds[promptModule.category].includes(promptModule.id)
 }
@@ -57,11 +72,13 @@ function togglePromptModule(
   const selectedIndex = categorySelections.indexOf(promptModule.id)
   if (selectedIndex >= 0) {
     categorySelections.splice(selectedIndex, 1)
+    collapsedCategories[category.key] = false
     return
   }
 
   if (category.selectionMode === 'single') {
     selectedModuleIds[category.key] = [promptModule.id]
+    collapsedCategories[category.key] = true
     return
   }
 
@@ -72,6 +89,7 @@ function togglePromptModule(
     ))
     if (sameGroupSelectionIndex >= 0) {
       categorySelections.splice(sameGroupSelectionIndex, 1, promptModule.id)
+      collapsedCategories[category.key] = categorySelections.length >= category.maxSelections
       return
     }
   }
@@ -81,10 +99,16 @@ function togglePromptModule(
     return
   }
   categorySelections.push(promptModule.id)
+  collapsedCategories[category.key] = categorySelections.length >= category.maxSelections
 }
 
 function clearCategory(category: PromptModuleCategory) {
   selectedModuleIds[category] = []
+  collapsedCategories[category] = false
+}
+
+function toggleCategoryCollapse(category: PromptModuleCategory) {
+  collapsedCategories[category] = !collapsedCategories[category]
 }
 
 function clearComposition() {
@@ -95,7 +119,10 @@ function clearComposition() {
 function removePromptModule(promptModule: PromptModule) {
   const categorySelections = selectedModuleIds[promptModule.category]
   const selectedIndex = categorySelections.indexOf(promptModule.id)
-  if (selectedIndex >= 0) categorySelections.splice(selectedIndex, 1)
+  if (selectedIndex >= 0) {
+    categorySelections.splice(selectedIndex, 1)
+    collapsedCategories[promptModule.category] = false
+  }
 }
 
 function getCategoryLabel(category: PromptModuleCategory): string {
@@ -236,16 +263,17 @@ onMounted(() => {
           <section
             v-for="(category, categoryIndex) in PROMPT_MODULE_CATEGORIES"
             :key="category.key"
-            class="rise-in rounded-2xl border border-line bg-well p-5 shadow-card"
+            class="module-category rise-in rounded-2xl border border-line bg-well p-5 shadow-card"
+            :class="{ 'is-collapsed': collapsedCategories[category.key] }"
             :style="{ '--stagger': categoryIndex }"
           >
-            <div class="mb-3 flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <p class="field-label">{{ String(categoryIndex + 1).padStart(2, '0') }} · {{ category.key }}</p>
-                <div class="mt-1 flex flex-wrap items-baseline gap-x-2 gap-y-1">
-                  <h2 class="text-[14px] font-semibold">{{ category.label }}</h2>
-                  <span class="text-[11px] text-dim">{{ category.description }}</span>
-                </div>
+            <div
+              class="flex flex-wrap items-start justify-between gap-3"
+              :class="{ 'mb-3': !collapsedCategories[category.key] }"
+            >
+              <div class="flex items-center gap-2.5">
+                <span class="category-index">{{ String(categoryIndex + 1).padStart(2, '0') }}</span>
+                <h2 class="text-[14px] font-semibold">{{ category.label }}</h2>
               </div>
               <div class="flex items-center gap-2">
                 <span class="font-mono text-[9.5px] text-dim">
@@ -253,13 +281,43 @@ onMounted(() => {
                 </span>
                 <button
                   v-if="selectedModuleIds[category.key].length"
-                  class="text-button"
+                  class="module-icon-button"
+                  :class="{ 'is-expanded': !collapsedCategories[category.key] }"
+                  :aria-expanded="!collapsedCategories[category.key]"
+                  :aria-label="collapsedCategories[category.key] ? `展开${category.label}` : `折叠${category.label}`"
+                  :title="collapsedCategories[category.key] ? '展开修改' : '折叠分类'"
+                  @click="toggleCategoryCollapse(category.key)"
+                >
+                  <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                    <path d="m6 9 6 6 6-6" />
+                  </svg>
+                </button>
+                <button
+                  v-if="selectedModuleIds[category.key].length"
+                  class="module-icon-button is-danger"
+                  :aria-label="`清除${category.label}选择`"
+                  title="清除选择"
                   @click="clearCategory(category.key)"
-                >清除</button>
+                >
+                  <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                    <path d="m8 8 8 8M16 8l-8 8" />
+                  </svg>
+                </button>
               </div>
             </div>
 
-            <div class="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            <div
+              v-if="collapsedCategories[category.key]"
+              class="mt-2 flex flex-wrap gap-1.5"
+            >
+              <span
+                v-for="promptModule in getSelectedModulesByCategory(category.key)"
+                :key="promptModule.id"
+                class="collapsed-selection"
+              >{{ promptModule.title }}</span>
+            </div>
+
+            <div v-else class="grid grid-cols-2 gap-1.5 sm:grid-cols-3 lg:grid-cols-5">
               <button
                 v-for="promptModule in getModulesByCategory(category.key)"
                 :key="promptModule.id"
@@ -296,7 +354,6 @@ onMounted(() => {
                 </div>
                 <span class="core-content-badge">非模块</span>
               </div>
-              <p class="mt-1.5 text-[10.5px] leading-relaxed text-dim">这是最终提示词的内容锚点，与左侧可选片段分开。</p>
               <input
                 v-model="corePrompt"
                 data-core-prompt
@@ -311,7 +368,6 @@ onMounted(() => {
               <div>
                 <p class="field-label">Module track</p>
                 <h3 class="mt-1 text-[13px] font-semibold">选择的提示词片段</h3>
-                <p class="mt-1 text-[10.5px] leading-relaxed text-dim">轨道显示短名称，最终提示词使用对应的完整精确指令。</p>
               </div>
               <span class="rounded-full bg-accentsoft px-2.5 py-1 font-mono text-[10px] text-accenthi">
                 {{ selectedModuleCount }} 项 · {{ selectedCategoryCount }} 类
@@ -332,14 +388,14 @@ onMounted(() => {
                   <span aria-hidden="true">×</span>
                 </button>
               </div>
-              <p v-else class="text-[11.5px] leading-relaxed text-dim">尚未选择提示词片段。左侧每个模块只负责一个独立维度。</p>
+              <p v-else class="text-[11.5px] text-dim">尚未选择模块</p>
             </div>
 
             <div class="mt-5">
               <p class="field-label">Final prompt</p>
               <div class="mt-2 min-h-36 rounded-xl border border-line bg-well p-4">
                 <p v-if="composedPrompt" class="text-[12.5px] leading-[1.8] text-paper">{{ composedPrompt }}</p>
-                <p v-else class="text-[11.5px] leading-relaxed text-dim">最终提示词只按固定模块顺序拼接，不进行改写、推荐或补全。</p>
+                <p v-else class="text-[11.5px] text-dim">最终提示词将在这里显示</p>
               </div>
             </div>
 
@@ -347,7 +403,6 @@ onMounted(() => {
               <button class="btn px-3" :disabled="!canUseComposition" @click="copyComposedPrompt">复制</button>
               <button class="btn btn-primary" :disabled="!canUseComposition" @click="useComposedPrompt">带入直接创作</button>
             </div>
-            <p class="mt-2.5 text-center font-mono text-[9.5px] text-dim">纯文本模块 · 固定顺序拼接 · Ctrl/⌘ + Enter</p>
           </section>
         </aside>
       </div>
@@ -427,14 +482,53 @@ onMounted(() => {
 </template>
 
 <style scoped>
+.module-category {
+  transition: padding 0.18s var(--ease-out-soft), border-color 0.16s, background 0.16s;
+}
+.module-category.is-collapsed {
+  border-color: var(--color-line2);
+  padding: 12px 16px;
+}
+.category-index {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--color-dim);
+}
+.module-icon-button {
+  display: inline-flex;
+  width: 25px;
+  height: 25px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--color-line);
+  border-radius: 7px;
+  color: var(--color-dim);
+  transition: border-color 0.16s, background 0.16s, color 0.16s;
+}
+.module-icon-button:hover {
+  border-color: var(--color-line2);
+  background: color-mix(in srgb, var(--color-paper) 5%, transparent);
+  color: var(--color-paper);
+}
+.module-icon-button.is-danger:hover {
+  border-color: color-mix(in srgb, var(--color-red) 55%, var(--color-line));
+  background: color-mix(in srgb, var(--color-red) 10%, transparent);
+  color: var(--color-red);
+}
+.module-icon-button svg {
+  width: 13px;
+  height: 13px;
+  transition: transform 0.18s var(--ease-out-soft);
+}
+.module-icon-button.is-expanded svg { transform: rotate(180deg); }
 .module-option {
   display: flex;
-  min-height: 42px;
+  min-height: 34px;
   flex-direction: column;
   border: 1px solid var(--color-line);
-  border-radius: 11px;
+  border-radius: 8px;
   background: color-mix(in srgb, var(--color-ink) 38%, var(--color-well));
-  padding: 10px 11px;
+  padding: 7px 9px;
   text-align: left;
   transition: border-color 0.16s, background 0.16s, transform 0.18s var(--ease-out-soft), box-shadow 0.16s;
 }
@@ -453,11 +547,19 @@ onMounted(() => {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  font-size: 12.5px;
+  font-size: 11.5px;
   font-weight: 600;
   color: var(--color-paper);
 }
 .module-option.is-selected .module-option-title { color: var(--color-accenthi); }
+.collapsed-selection {
+  border: 1px solid color-mix(in srgb, var(--color-accent) 42%, var(--color-line));
+  border-radius: 999px;
+  background: var(--color-accentsoft);
+  padding: 3px 8px;
+  font-size: 10.5px;
+  color: var(--color-accenthi);
+}
 .composer-preview { background: color-mix(in srgb, var(--color-well) 94%, var(--color-accentsoft)); }
 .core-content-panel {
   border: 1px solid var(--color-paper);
