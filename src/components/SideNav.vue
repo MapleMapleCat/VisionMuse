@@ -17,7 +17,7 @@ const items = computed(() => [
   },
   {
     path: '/prompts',
-    label: '模板',
+    label: '模块',
     icon: 'M7 8h10M7 12h6m-6 4h8M5 4h14a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1Z',
   },
   {

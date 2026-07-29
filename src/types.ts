@@ -134,10 +134,16 @@ export interface PromptTemplate {
 }
 
 export const PROMPT_MODULE_CATEGORY_KEYS = [
-  'style',
+  'subject',
+  'pose',
+  'expression',
+  'environment',
+  'shot',
+  'angle',
+  'lens',
   'composition',
   'lighting',
-  'environment',
+  'style',
   'color',
   'detail',
 ] as const

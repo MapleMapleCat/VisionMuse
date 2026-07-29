@@ -150,13 +150,20 @@ function openDock() {
 }
 
 function pickTemplate(template: PromptTemplate) {
+  const hasVariables = /\{\{[^}]+\}\}/.test(template.content)
+  if (hasVariables) {
+    showTemplates.value = false
+    void router.push({ path: '/prompts', query: { template: template.id } })
+    return
+  }
+
   void templateStore.recordUse(template)
   ui.draftPrompt = template.content
   showTemplates.value = false
   nextTick(() => promptEl.value?.focus())
 }
 
-function openPromptComposer() {
+function openPromptModules() {
   showTemplates.value = false
   void router.push('/prompts')
 }
@@ -405,7 +412,7 @@ watch(
         </div>
 
         <div v-else class="inspiration-row">
-          <span class="field-label shrink-0">灵感起点</span>
+          <span class="field-label shrink-0">完整提示词</span>
           <button
             v-for="template in templateStore.templates.slice(0, 4)"
             :key="template.id"
@@ -471,18 +478,18 @@ watch(
         </label>
 
         <div class="relative" data-dock-menu>
-          <button class="tool-button" aria-label="打开提示词模板" aria-controls="dock-template-menu" :aria-expanded="showTemplates" @click="showTemplates = !showTemplates; showHistory = false; quantityExpanded = false">
+          <button class="tool-button" aria-label="打开提示词工具" aria-controls="dock-template-menu" :aria-expanded="showTemplates" @click="showTemplates = !showTemplates; showHistory = false; quantityExpanded = false">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M7 4h10v16H7zM4 7h3m10 0h3M4 12h3m10 0h3M4 17h3m10 0h3" /></svg>
-            <span>模板</span>
+            <span>模块</span>
           </button>
           <div v-if="showTemplates" id="dock-template-menu" class="dock-menu pop-in">
             <p class="menu-title">提示词工具</p>
-            <button class="composer-menu-entry" @click="openPromptComposer">
-              <span>模块化拼接</span>
-              <small>推荐</small>
-              <p>填写主体，按风格、构图、光线等功能快速组合</p>
+            <button class="composer-menu-entry" @click="openPromptModules">
+              <span>原子模块拼接</span>
+              <small>人物 / 场景 / 镜头</small>
+              <p>从独立文本片段中自行选择，系统不推荐也不自动搭配</p>
             </button>
-            <p class="menu-title !pt-3">完整模板</p>
+            <p class="menu-title !pt-3">完整提示词</p>
             <button v-for="template in templateStore.templates" :key="template.id" @click="pickTemplate(template)">
               <span>{{ template.title }}</span>
               <small>{{ template.category }}</small>

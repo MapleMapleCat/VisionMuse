@@ -21,14 +21,14 @@ const lightingModule: PromptModule = {
 }
 
 describe('composePrompt', () => {
-  it('composes the optional subject and modules in functional category order', () => {
+  it('composes the core content and modules in atomic category order', () => {
     expect(composePrompt('一只黑猫', [lightingModule, styleModule]))
-      .toBe('一只黑猫，电影感摄影，柔和自然窗光')
+      .toBe('一只黑猫，柔和自然窗光，电影感摄影')
   })
 
-  it('supports composing modules without a subject', () => {
+  it('supports composing module fragments without core content', () => {
     expect(composePrompt('', [lightingModule, styleModule]))
-      .toBe('电影感摄影，柔和自然窗光')
+      .toBe('柔和自然窗光，电影感摄影')
   })
 
   it('returns a clean subject when no modules are selected', () => {

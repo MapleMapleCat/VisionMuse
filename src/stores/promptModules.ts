@@ -13,7 +13,15 @@ export const usePromptModuleStore = defineStore('promptModules', () => {
     if (initialized.value) return
     const storedPromptModules = await loadPromptModules()
     if (storedPromptModules.length) {
-      promptModules.value = storedPromptModules
+      const storedPromptModulesById = new Map(
+        storedPromptModules.map(promptModule => [promptModule.id, promptModule]),
+      )
+      const synchronizedDefaults = DEFAULT_PROMPT_MODULES.map(defaultPromptModule => ({
+        ...defaultPromptModule,
+        useCount: storedPromptModulesById.get(defaultPromptModule.id)?.useCount ?? 0,
+      }))
+      promptModules.value = synchronizedDefaults
+      await savePromptModules(promptModules.value)
     } else {
       promptModules.value = cloneForStorage(DEFAULT_PROMPT_MODULES)
       await savePromptModules(promptModules.value)
