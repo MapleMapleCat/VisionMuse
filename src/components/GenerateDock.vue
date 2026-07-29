@@ -904,7 +904,22 @@ watch(
   transform: scale(1);
 }
 
-.composer-row { display: flex; align-items: flex-end; gap: 10px; padding: 12px 14px 7px; }
+.composer-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  margin: 12px 14px 7px;
+  border: 1px solid var(--color-line2);
+  border-radius: 16px;
+  background: var(--color-well);
+  padding: 8px 10px;
+  box-shadow: 0 1px 2px rgb(38 35 28 / 0.04) inset;
+  transition: border-color 0.16s, box-shadow 0.16s;
+}
+.composer-row:focus-within {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 12%, transparent);
+}
 .composer-mark {
   display: flex;
   height: 36px;
