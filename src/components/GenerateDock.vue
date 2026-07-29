@@ -419,7 +419,17 @@ watch(
               class="text-button"
               @click="tasks.cancel(task.id)"
             >取消</button>
-            <button v-else-if="task.status === 'failed'" class="text-button text-accenthi" @click="tasks.retry(task.id)">重试</button>
+            <div v-else-if="task.status === 'failed'" class="flex shrink-0 items-center gap-1">
+              <button class="text-button text-accenthi" @click="tasks.retry(task.id)">重试</button>
+              <button
+                class="icon-button !h-7 !w-7"
+                title="关闭并移除失败任务"
+                aria-label="关闭并移除失败任务"
+                @click="tasks.remove(task.id)"
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 6l12 12M18 6 6 18" /></svg>
+              </button>
+            </div>
             <button v-else class="icon-button !h-7 !w-7" title="移除任务记录" aria-label="移除任务记录" @click="tasks.remove(task.id)">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 6l12 12M18 6 6 18" /></svg>
             </button>
