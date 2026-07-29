@@ -339,7 +339,10 @@ onBeforeUnmount(() => {
                 class="final-prompt-panel mt-2 min-h-36 rounded-xl border border-line bg-well p-4"
                 :class="{ 'is-updating': promptPreviewIsUpdating }"
               >
-                <p v-if="composedPrompt" class="whitespace-pre-wrap text-[12.5px] leading-[1.8] text-paper">{{ composedPrompt }}</p>
+                <p
+                  v-if="composedPrompt"
+                  class="final-prompt-natural-language whitespace-pre-wrap"
+                >{{ composedPrompt }}</p>
                 <p v-else class="text-[11.5px] text-dim">最终提示词将在这里显示</p>
               </div>
             </div>
@@ -513,6 +516,11 @@ onBeforeUnmount(() => {
 }
 .final-prompt-panel {
   transition: border-color var(--motion-fast) ease, box-shadow var(--motion-normal) ease;
+}
+.final-prompt-natural-language {
+  color: var(--color-paper);
+  font-size: 12.25px;
+  line-height: 1.85;
 }
 .final-prompt-panel.is-updating {
   animation: prompt-preview-update 280ms var(--ease-out-soft);
