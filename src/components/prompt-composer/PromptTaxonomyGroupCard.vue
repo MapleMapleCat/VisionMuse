@@ -95,12 +95,6 @@ const parentChoiceLabels = computed(() => props.indexedGroup.ancestorChoiceIds
 
 const branchContextLabel = computed(() => parentChoiceLabels.value.join(' / '))
 
-const groupLimitLabel = computed(() => (
-  props.indexedGroup.group.selectionMode === 'single'
-    ? '单选'
-    : `最多 ${props.indexedGroup.group.maxSelections} 项`
-))
-
 const groupContentId = computed(() => `taxonomy-group-content-${props.indexedGroup.group.id}`)
 
 const visibleChildBranches = computed<VisiblePromptChildBranch[]>(() => (
@@ -186,7 +180,22 @@ function handleBranchAfterEnter(enteredElement: Element) {
           <h4 class="truncate text-[12.5px] font-semibold">
             {{ indexedGroup.group.label }}
           </h4>
-          <span class="taxonomy-mode-badge">{{ groupLimitLabel }}</span>
+          <TransitionGroup
+            v-if="collapsed"
+            name="taxonomy-summary-chip"
+            tag="div"
+            class="taxonomy-summary-list"
+            aria-label="已选内容"
+          >
+            <span
+              v-for="promptModule in selectedSubtreePromptModules"
+              :key="promptModule.id"
+              class="taxonomy-summary-chip"
+            >
+              <span class="taxonomy-summary-dot" aria-hidden="true" />
+              {{ promptModule.title }}
+            </span>
+          </TransitionGroup>
         </div>
       </div>
 
@@ -320,24 +329,6 @@ function handleBranchAfterEnter(enteredElement: Element) {
       </div>
     </div>
 
-    <div
-      class="taxonomy-summary-region"
-      :aria-hidden="!collapsed"
-      :inert="collapsed ? undefined : true"
-    >
-      <div class="taxonomy-region-inner">
-        <TransitionGroup name="taxonomy-summary-chip" tag="div" class="taxonomy-summary-list">
-          <span
-            v-for="promptModule in selectedSubtreePromptModules"
-            :key="promptModule.id"
-            class="taxonomy-summary-chip"
-          >
-            <span class="taxonomy-summary-dot" aria-hidden="true" />
-            {{ promptModule.title }}
-          </span>
-        </TransitionGroup>
-      </div>
-    </div>
   </article>
 </template>
 
@@ -372,8 +363,19 @@ function handleBranchAfterEnter(enteredElement: Element) {
 }
 
 .taxonomy-group-card.is-collapsed {
-  padding-block: 10px;
+  padding: 7px 9px;
   box-shadow: none;
+}
+
+.taxonomy-group-card.is-collapsed > .taxonomy-group-header {
+  align-items: center;
+}
+
+.taxonomy-group-card.is-collapsed
+  > .taxonomy-group-header
+  > .taxonomy-group-heading-copy
+  > .taxonomy-branch-context {
+  display: none;
 }
 
 .taxonomy-branch-backdrop {
@@ -439,16 +441,6 @@ function handleBranchAfterEnter(enteredElement: Element) {
   font-size: 8px;
 }
 
-.taxonomy-mode-badge {
-  flex: none;
-  border: 1px solid var(--color-line);
-  border-radius: 999px;
-  padding: 2px 6px;
-  color: var(--color-dim);
-  font-family: var(--font-mono);
-  font-size: 7.5px;
-}
-
 .taxonomy-group-actions {
   position: relative;
   z-index: 2;
@@ -507,8 +499,7 @@ function handleBranchAfterEnter(enteredElement: Element) {
   transform: rotate(180deg);
 }
 
-.taxonomy-expanded-region,
-.taxonomy-summary-region {
+.taxonomy-expanded-region {
   display: grid;
   transition:
     grid-template-rows var(--motion-normal) var(--ease-out-soft),
@@ -522,25 +513,11 @@ function handleBranchAfterEnter(enteredElement: Element) {
   opacity: 1;
 }
 
-.taxonomy-summary-region {
-  grid-template-rows: 0fr;
-  margin-top: 0;
-  opacity: 0;
-  pointer-events: none;
-}
-
 .taxonomy-group-card.is-collapsed .taxonomy-expanded-region {
   grid-template-rows: 0fr;
   margin-top: 0;
   opacity: 0;
   pointer-events: none;
-}
-
-.taxonomy-group-card.is-collapsed .taxonomy-summary-region {
-  grid-template-rows: 1fr;
-  margin-top: 8px;
-  opacity: 1;
-  pointer-events: auto;
 }
 
 .taxonomy-region-inner {
@@ -851,25 +828,34 @@ function handleBranchAfterEnter(enteredElement: Element) {
 .taxonomy-summary-list {
   position: relative;
   display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
+  min-width: 0;
+  align-items: center;
+  gap: 4px;
+  overflow: hidden;
 }
 
 .taxonomy-summary-chip {
   display: inline-flex;
+  min-width: 0;
+  flex: 0 1 auto;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
+  overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--color-accent) 40%, var(--color-line));
   border-radius: 999px;
   background: var(--color-accentsoft);
-  padding: 3px 8px;
+  padding: 2px 6px;
   color: var(--color-accenthi);
-  font-size: 9.75px;
+  font-size: 8.5px;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .taxonomy-summary-dot {
-  width: 5px;
-  height: 5px;
+  width: 4px;
+  height: 4px;
+  flex: none;
   border-radius: 999px;
   background: var(--color-accent);
 }
@@ -900,10 +886,6 @@ function handleBranchAfterEnter(enteredElement: Element) {
   .taxonomy-child-branch {
     margin-inline: -3px;
     padding: 9px;
-  }
-
-  .taxonomy-mode-badge {
-    display: none;
   }
 
   .taxonomy-group-actions {
