@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
-import { cloneDefaultSettings } from '@/defaults/settings'
+import { LEGACY_OPENAI_EDIT_BODY, cloneDefaultSettings } from '@/defaults/settings'
 import { loadSettings, saveSettings } from '@/services/database'
 import { testApiConnection } from '@/services/imageApi'
 import type { AppSettings } from '@/types'
@@ -9,6 +9,11 @@ import { cloneForStorage } from '@/services/clone'
 function mergeSettings(savedSettings?: AppSettings): AppSettings {
   const defaults = cloneDefaultSettings()
   if (!savedSettings) return defaults
+  const savedEditSettings = { ...defaults.api.edit, ...savedSettings.api?.edit }
+  if (savedEditSettings.bodyTemplate === LEGACY_OPENAI_EDIT_BODY) {
+    savedEditSettings.bodyTemplate = defaults.api.edit.bodyTemplate
+  }
+
   return {
     ...defaults,
     ...savedSettings,
@@ -16,7 +21,7 @@ function mergeSettings(savedSettings?: AppSettings): AppSettings {
       ...defaults.api,
       ...savedSettings.api,
       generation: { ...defaults.api.generation, ...savedSettings.api?.generation },
-      edit: { ...defaults.api.edit, ...savedSettings.api?.edit },
+      edit: savedEditSettings,
       response: { ...defaults.api.response, ...savedSettings.api?.response },
     },
     defaultParams: { ...defaults.defaultParams, ...savedSettings.defaultParams },

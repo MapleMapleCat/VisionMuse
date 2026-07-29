@@ -18,24 +18,32 @@ export const useTaskStore = defineStore('tasks', () => {
   const sessionTasks = computed(() => [...tasks.value].sort((a, b) => b.createdAt - a.createdAt))
 
   function toStoredTask(task: GenerationTask): StoredGenerationTask {
-    const referenceImage = task.referenceImage
-      ? {
-          blob: task.referenceImage.blob,
-          fileName: task.referenceImage.fileName,
-          mimeType: task.referenceImage.mimeType,
-          width: task.referenceImage.width,
-          height: task.referenceImage.height,
-        }
-      : undefined
-    return { ...task, referenceImage }
+    const referenceImages = task.referenceImages.map(referenceImage => ({
+      blob: referenceImage.blob,
+      fileName: referenceImage.fileName,
+      mimeType: referenceImage.mimeType,
+      width: referenceImage.width,
+      height: referenceImage.height,
+    }))
+    return { ...task, referenceImages }
   }
 
   function toRuntimeTask(task: StoredGenerationTask): GenerationTask {
+    const {
+      referenceImage: legacyReferenceImage,
+      referenceImages: storedReferenceImages,
+      ...taskMetadata
+    } = task
+    const normalizedReferenceImages = storedReferenceImages?.length
+      ? storedReferenceImages
+      : legacyReferenceImage ? [legacyReferenceImage] : []
+
     return {
-      ...task,
-      referenceImage: task.referenceImage
-        ? { ...task.referenceImage, previewUrl: '' }
-        : undefined,
+      ...taskMetadata,
+      referenceImages: normalizedReferenceImages.map(referenceImage => ({
+        ...referenceImage,
+        previewUrl: '',
+      })),
     }
   }
 
@@ -58,21 +66,22 @@ export const useTaskStore = defineStore('tasks', () => {
     initialized.value = true
   }
 
-  async function submit(prompt: string, params: GenParams, referenceImage?: ReferenceImage) {
+  async function submit(prompt: string, params: GenParams, referenceImages: ReferenceImage[] = []) {
     const settingsStore = useSettingsStore()
     if (!settingsStore.apiConfigured) throw new Error('请先在设置中填写文生图请求 URL')
     const apiSettings = cloneForStorage(settingsStore.settings.api)
     const { apiKey: _apiKey, ...apiConfig } = apiSettings
-    const taskReference = referenceImage
-      ? { ...referenceImage, previewUrl: '' }
-      : undefined
-    const kind = taskReference ? 'edit' : 'generate'
+    const taskReferences = referenceImages.map(referenceImage => ({
+      ...referenceImage,
+      previewUrl: '',
+    }))
+    const kind = taskReferences.length ? 'edit' : 'generate'
     const task: GenerationTask = {
       id: createId('task'),
       kind,
       prompt,
       params: { ...params },
-      referenceImage: taskReference,
+      referenceImages: taskReferences,
       status: 'queued',
       requestEndpoint: kind === 'edit' ? apiSettings.edit.url : apiSettings.generation.url,
       model: apiSettings.model || 'custom',
@@ -114,7 +123,7 @@ export const useTaskStore = defineStore('tasks', () => {
         settings: apiSettings,
         prompt: task.prompt,
         params: task.params,
-        referenceImage: task.referenceImage,
+        referenceImages: task.referenceImages,
         signal: controller.signal,
       })
       if (controller.signal.aborted) throw controller.signal.reason
@@ -128,7 +137,7 @@ export const useTaskStore = defineStore('tasks', () => {
         await saveTask(toStoredTask(task))
         if (controller.signal.aborted) throw controller.signal.reason
       }
-      task.referenceImage = undefined
+      task.referenceImages = []
       task.status = 'done'
       task.finishedAt = Date.now()
       await saveTask(toStoredTask(task))
@@ -136,7 +145,7 @@ export const useTaskStore = defineStore('tasks', () => {
       if (controller.signal.aborted) {
         if (createdImageIds.length) await useGalleryStore().purge(createdImageIds)
         task.imageIds = task.imageIds.filter(imageId => !createdImageIds.includes(imageId))
-        task.referenceImage = undefined
+        task.referenceImages = []
         await saveTask(toStoredTask(task))
       } else {
         task.status = 'failed'
@@ -156,7 +165,7 @@ export const useTaskStore = defineStore('tasks', () => {
     if (!task || (task.status !== 'queued' && task.status !== 'running')) return
     task.status = 'canceled'
     task.finishedAt = Date.now()
-    task.referenceImage = undefined
+    task.referenceImages = []
     controllers.get(taskId)?.abort(new DOMException('用户取消请求', 'AbortError'))
     await saveTask(toStoredTask(task))
     pump()
@@ -177,7 +186,9 @@ export const useTaskStore = defineStore('tasks', () => {
   async function remove(taskId: string) {
     await cancel(taskId)
     const task = tasks.value.find(item => item.id === taskId)
-    if (task?.referenceImage?.previewUrl.startsWith('blob:')) URL.revokeObjectURL(task.referenceImage.previewUrl)
+    for (const referenceImage of task?.referenceImages ?? []) {
+      if (referenceImage.previewUrl.startsWith('blob:')) URL.revokeObjectURL(referenceImage.previewUrl)
+    }
     tasks.value = tasks.value.filter(t => t.id !== taskId)
     await deleteTask(taskId)
   }

@@ -24,6 +24,8 @@ export interface ReferenceImage {
 
 export interface StoredReferenceImage extends Omit<ReferenceImage, 'previewUrl'> {}
 
+export const MAX_REFERENCE_IMAGE_COUNT = 16
+
 export interface ApiOperationConfig {
   url: string
   method: 'POST' | 'PUT' | 'PATCH'
@@ -69,7 +71,7 @@ export interface GenerationTask {
   kind: 'generate' | 'edit'
   prompt: string
   params: GenParams
-  referenceImage?: ReferenceImage
+  referenceImages: ReferenceImage[]
   status: TaskStatus
   error?: string
   errorStatus?: number
@@ -84,7 +86,9 @@ export interface GenerationTask {
   imageIds: string[]
 }
 
-export interface StoredGenerationTask extends Omit<GenerationTask, 'referenceImage'> {
+export interface StoredGenerationTask extends Omit<GenerationTask, 'referenceImages'> {
+  referenceImages?: StoredReferenceImage[]
+  /** Kept only so tasks created by earlier app versions can be restored. */
   referenceImage?: StoredReferenceImage
 }
 

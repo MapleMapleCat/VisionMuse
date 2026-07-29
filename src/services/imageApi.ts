@@ -19,10 +19,10 @@ interface RequestVariables {
   quality: string
   format: string
   n: number
-  referenceImageFile?: Blob
-  referenceImageBase64?: string
-  referenceMimeType?: string
-  referenceFileName?: string
+  referenceImageFile?: Blob | Blob[]
+  referenceImageBase64?: string | string[]
+  referenceMimeType?: string | string[]
+  referenceFileName?: string | string[]
 }
 
 export class ImageApiError extends Error {
@@ -110,7 +110,21 @@ export function buildMultipartRequestBody(bodyTemplate: string, variables: Reque
   for (const [fieldName, value] of Object.entries(substitutedBody)) {
     if (value === undefined || value === null || value === '') continue
     if (value instanceof Blob) {
-      formData.append(fieldName, value, variables.referenceFileName || 'reference.png')
+      const referenceFileName = Array.isArray(variables.referenceFileName)
+        ? variables.referenceFileName[0]
+        : variables.referenceFileName
+      formData.append(fieldName, value, referenceFileName || 'reference.png')
+    } else if (Array.isArray(value) && value.every(item => item instanceof Blob)) {
+      const referenceFileNames = Array.isArray(variables.referenceFileName)
+        ? variables.referenceFileName
+        : []
+      for (const [referenceIndex, referenceBlob] of value.entries()) {
+        formData.append(
+          fieldName,
+          referenceBlob,
+          referenceFileNames[referenceIndex] || `reference-${referenceIndex + 1}.png`,
+        )
+      }
     } else if (typeof value === 'object') {
       if (containsBlob(value)) throw new ImageApiError('Multipart 文件占位符必须位于请求体模板的顶层字段')
       formData.append(fieldName, JSON.stringify(value))
@@ -187,10 +201,19 @@ async function createRequestVariables(
   prompt: string,
   params: GenParams,
   model: string,
-  referenceImage?: ReferenceImage,
+  referenceImages: ReferenceImage[],
   requiresReferenceBase64 = false,
 ): Promise<RequestVariables> {
   const { w: width, h: height } = sizeToWH(params.size)
+  const referenceImageFiles = referenceImages.map(referenceImage => referenceImage.blob)
+  const referenceImageBase64Values = requiresReferenceBase64
+    ? await Promise.all(referenceImages.map(referenceImage => blobToBase64(referenceImage.blob)))
+    : []
+
+  const collapseSingleReferenceValue = <Value>(values: Value[]): Value | Value[] | undefined => {
+    if (!values.length) return undefined
+    return values.length === 1 ? values[0] : values
+  }
 
   return {
     prompt,
@@ -203,10 +226,10 @@ async function createRequestVariables(
     quality: params.quality,
     format: params.format,
     n: params.n,
-    referenceImageFile: referenceImage?.blob,
-    referenceImageBase64: referenceImage && requiresReferenceBase64 ? await blobToBase64(referenceImage.blob) : undefined,
-    referenceMimeType: referenceImage?.mimeType,
-    referenceFileName: referenceImage?.fileName,
+    referenceImageFile: collapseSingleReferenceValue(referenceImageFiles),
+    referenceImageBase64: collapseSingleReferenceValue(referenceImageBase64Values),
+    referenceMimeType: collapseSingleReferenceValue(referenceImages.map(referenceImage => referenceImage.mimeType)),
+    referenceFileName: collapseSingleReferenceValue(referenceImages.map(referenceImage => referenceImage.fileName)),
   }
 }
 
@@ -263,12 +286,12 @@ async function executeOperation(
   settings: ApiSettings,
   prompt: string,
   params: GenParams,
-  referenceImage: ReferenceImage | undefined,
+  referenceImages: ReferenceImage[],
   signal?: AbortSignal,
 ): Promise<ImageApiResult> {
   if (!operation.url.trim()) throw new ImageApiError('请先在设置中填写请求 URL')
   const requiresReferenceBase64 = operation.bodyTemplate.includes('{{referenceImageBase64}}')
-  const variables = await createRequestVariables(prompt, params, settings.model, referenceImage, requiresReferenceBase64)
+  const variables = await createRequestVariables(prompt, params, settings.model, referenceImages, requiresReferenceBase64)
   const isJson = operation.bodyMode === 'json'
   const requestBody = isJson
     ? JSON.stringify(buildJsonRequestBody(operation.bodyTemplate, variables))
@@ -287,11 +310,12 @@ export function requestImages(options: {
   settings: ApiSettings
   prompt: string
   params: GenParams
-  referenceImage?: ReferenceImage
+  referenceImages?: ReferenceImage[]
   signal?: AbortSignal
 }): Promise<ImageApiResult> {
-  const operation = options.referenceImage ? options.settings.edit : options.settings.generation
-  return executeOperation(operation, options.settings, options.prompt, options.params, options.referenceImage, options.signal)
+  const referenceImages = options.referenceImages ?? []
+  const operation = referenceImages.length ? options.settings.edit : options.settings.generation
+  return executeOperation(operation, options.settings, options.prompt, options.params, referenceImages, options.signal)
 }
 
 export async function testApiConnection(settings: ApiSettings): Promise<void> {

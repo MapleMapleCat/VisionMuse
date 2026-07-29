@@ -10,10 +10,21 @@ const OPENAI_GENERATION_BODY = JSON.stringify({
   response_format: 'b64_json',
 }, null, 2)
 
-const OPENAI_EDIT_BODY = JSON.stringify({
+export const LEGACY_OPENAI_EDIT_BODY = JSON.stringify({
   model: '{{model}}',
   prompt: '{{prompt}}',
   image: '{{referenceImageFile}}',
+  size: '{{size}}',
+  quality: '{{quality}}',
+  output_format: '{{format}}',
+  n: '{{n}}',
+  response_format: 'b64_json',
+}, null, 2)
+
+const OPENAI_EDIT_BODY = JSON.stringify({
+  model: '{{model}}',
+  prompt: '{{prompt}}',
+  'image[]': '{{referenceImageFile}}',
   size: '{{size}}',
   quality: '{{quality}}',
   output_format: '{{format}}',

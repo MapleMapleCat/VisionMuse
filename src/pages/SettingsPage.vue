@@ -275,7 +275,8 @@ onBeforeUnmount(() => {
             <p class="mb-3 rounded-lg border border-line bg-well px-3 py-2 text-[10.5px] leading-relaxed text-dim">
               不同接口的尺寸字段并不通用。如果接口不接受 <code>size: "4096x2304"</code>，可按服务商文档改用
               <code v-text="'{{width}}'" /> / <code v-text="'{{height}}'" />，或
-              <code v-text="'{{aspectRatio}}'" /> / <code v-text="'{{resolution}}'" />。
+              <code v-text="'{{aspectRatio}}'" /> / <code v-text="'{{resolution}}'" />。Multipart 模式下，多张参考图会使用
+              <code v-text="'{{referenceImageFile}}'" /> 对应的字段名重复提交。
             </p>
             <div class="grid gap-3 sm:grid-cols-3">
               <label v-for="field in responseFields" :key="field[0]" class="block">

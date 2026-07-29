@@ -7,6 +7,7 @@ import type {
   PromptTemplate,
   StoredGenerationTask,
   StoredImageRecord,
+  StoredReferenceImage,
 } from '@/types'
 import { PROMPT_MODULE_CATEGORY_KEYS } from '@/types'
 import { DEFAULT_PROMPT_MODULES } from '@/assets/prompt-modules'
@@ -14,8 +15,14 @@ import { downloadBlob } from './download'
 import { cloneForStorage } from './clone'
 import { normalizePromptTemplates } from './promptTemplates'
 
-interface BackupTask extends Omit<StoredGenerationTask, 'referenceImage'> {
-  referenceImage?: Omit<NonNullable<StoredGenerationTask['referenceImage']>, 'blob'> & { blobPath: string }
+interface BackupReferenceImage extends Omit<StoredReferenceImage, 'blob'> {
+  blobPath: string
+}
+
+interface BackupTask extends Omit<StoredGenerationTask, 'referenceImages' | 'referenceImage'> {
+  referenceImages?: BackupReferenceImage[]
+  /** Supported when reading backups exported before multi-reference tasks. */
+  referenceImage?: BackupReferenceImage
 }
 
 interface BackupImage extends Omit<StoredImageRecord, 'originalBlob' | 'thumbnailBlob'> {
@@ -46,15 +53,13 @@ type BackupManifest = BackupManifestV1 | BackupManifestV2
 function toStoredTask(task: GenerationTask): StoredGenerationTask {
   return {
     ...task,
-    referenceImage: task.referenceImage
-      ? {
-          blob: task.referenceImage.blob,
-          fileName: task.referenceImage.fileName,
-          mimeType: task.referenceImage.mimeType,
-          width: task.referenceImage.width,
-          height: task.referenceImage.height,
-        }
-      : undefined,
+    referenceImages: task.referenceImages.map(referenceImage => ({
+      blob: referenceImage.blob,
+      fileName: referenceImage.fileName,
+      mimeType: referenceImage.mimeType,
+      width: referenceImage.width,
+      height: referenceImage.height,
+    })),
   }
 }
 
@@ -73,15 +78,29 @@ export async function exportBackup(options: {
   const archiveFiles: Record<string, Uint8Array> = {}
   const tasks: BackupTask[] = []
   for (const task of options.tasks.map(toStoredTask)) {
-    if (!task.referenceImage) {
-      const { referenceImage: _referenceImage, ...taskMetadata } = task
+    if (!task.referenceImages?.length) {
+      const {
+        referenceImage: _legacyReferenceImage,
+        referenceImages: _referenceImages,
+        ...taskMetadata
+      } = task
       tasks.push(taskMetadata)
       continue
     }
-    const referencePath = `references/${task.id}`
-    archiveFiles[referencePath] = new Uint8Array(await task.referenceImage.blob.arrayBuffer())
-    const { blob: _blob, ...referenceMetadata } = task.referenceImage
-    tasks.push({ ...task, referenceImage: { ...referenceMetadata, blobPath: referencePath } })
+
+    const referenceImages: BackupReferenceImage[] = []
+    for (const [referenceIndex, referenceImage] of task.referenceImages.entries()) {
+      const referencePath = `references/${task.id}/${referenceIndex}`
+      archiveFiles[referencePath] = new Uint8Array(await referenceImage.blob.arrayBuffer())
+      const { blob: _blob, ...referenceMetadata } = referenceImage
+      referenceImages.push({ ...referenceMetadata, blobPath: referencePath })
+    }
+    const {
+      referenceImage: _legacyReferenceImage,
+      referenceImages: _storedReferenceImages,
+      ...taskMetadata
+    } = task
+    tasks.push({ ...taskMetadata, referenceImages })
   }
 
   const images: BackupImage[] = []
@@ -147,9 +166,15 @@ function validateBackupManifest(value: unknown): asserts value is BackupManifest
     }
     if (taskIds.has(task.id)) throw new Error(`备份中存在重复任务 ID：${task.id}`)
     taskIds.add(task.id)
-    if (task.referenceImage !== undefined) {
-      if (!isRecord(task.referenceImage) || typeof task.referenceImage.blobPath !== 'string'
-        || typeof task.referenceImage.mimeType !== 'string') {
+    const taskReferenceImages = task.referenceImages !== undefined
+      ? task.referenceImages
+      : task.referenceImage !== undefined ? [task.referenceImage] : []
+    if (!Array.isArray(taskReferenceImages)) {
+      throw new Error(`任务 ${task.id} 的参考图列表无效`)
+    }
+    for (const referenceImage of taskReferenceImages) {
+      if (!isRecord(referenceImage) || typeof referenceImage.blobPath !== 'string'
+        || typeof referenceImage.mimeType !== 'string') {
         throw new Error(`任务 ${task.id} 的参考图记录无效`)
       }
     }
@@ -220,17 +245,27 @@ export async function importBackup(file: File): Promise<{
   validateBackupManifest(manifest)
 
   const tasks: StoredGenerationTask[] = manifest.tasks.map(task => {
-    if (!task.referenceImage) {
-      const { referenceImage: _referenceImage, ...taskMetadata } = task
-      return taskMetadata
-    }
-    const { blobPath, ...referenceMetadata } = task.referenceImage
+    const {
+      referenceImage: legacyReferenceImage,
+      referenceImages: archivedReferenceImages,
+      ...taskMetadata
+    } = task
+    const normalizedReferenceImages = archivedReferenceImages?.length
+      ? archivedReferenceImages
+      : legacyReferenceImage ? [legacyReferenceImage] : []
+
     return {
-      ...task,
-      referenceImage: {
-        ...referenceMetadata,
-        blob: new Blob([copyToArrayBuffer(requireArchiveFile(files, blobPath))], { type: referenceMetadata.mimeType }),
-      },
+      ...taskMetadata,
+      referenceImages: normalizedReferenceImages.map(referenceImage => {
+        const { blobPath, ...referenceMetadata } = referenceImage
+        return {
+          ...referenceMetadata,
+          blob: new Blob(
+            [copyToArrayBuffer(requireArchiveFile(files, blobPath))],
+            { type: referenceMetadata.mimeType },
+          ),
+        }
+      }),
     }
   })
   const images: StoredImageRecord[] = manifest.images.map(image => {

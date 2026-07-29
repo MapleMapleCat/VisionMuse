@@ -138,9 +138,10 @@ function doRemix() {
 
 function doReference() {
   if (!rec.value) return
-  ui.useAsReference(rec.value)
+  const referenceWasAdded = ui.useAsReference(rec.value)
+  if (!referenceWasAdded) return
   router.push('/gallery')
-  ui.showToast('已设为参考图 · img2img')
+  ui.showToast('已加入参考图 · img2img')
 }
 
 function doDownload() {

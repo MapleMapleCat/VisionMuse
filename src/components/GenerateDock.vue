@@ -14,6 +14,7 @@ import { createReferenceImage } from '@/services/imageAssets'
 import {
   ASPECT_RATIO_OPTIONS,
   FORMAT_OPTIONS,
+  MAX_REFERENCE_IMAGE_COUNT,
   QUALITY_OPTIONS,
   RESOLUTION_OPTIONS,
   estimateCost,
@@ -26,6 +27,7 @@ import {
   type ImageRecord,
   type ImageResolution,
   type PromptTemplate,
+  type ReferenceImage,
 } from '@/types'
 
 const gallery = useGalleryStore()
@@ -54,7 +56,7 @@ const seenTerminalTasks = new Set<string>()
 const canSubmit = computed(() => ui.draftPrompt.trim().length > 0 && !submitting.value)
 const cost = computed(() => estimateCost(
   ui.draftParams,
-  ui.referenceImage ? 'edit' : 'generate',
+  ui.referenceImages.length ? 'edit' : 'generate',
   settings.settings.estimatedCostByQuality,
 ))
 const recentTasks = computed(() => tasks.sessionTasks.slice(0, 4))
@@ -128,8 +130,8 @@ async function submit() {
   }
   submitting.value = true
   try {
-    await tasks.submit(ui.draftPrompt.trim(), ui.draftParams, ui.referenceImage)
-    ui.clearReferenceImage()
+    await tasks.submit(ui.draftPrompt.trim(), ui.draftParams, ui.prepareReferenceImagesForSubmission())
+    ui.clearReferenceImages()
     ui.dockOpen = true
     showTemplates.value = false
     showHistory.value = false
@@ -190,24 +192,45 @@ function pickHistory(prompt: string) {
 }
 
 function onPaste(event: ClipboardEvent) {
-  const file = [...(event.clipboardData?.files ?? [])].find(item => item.type.startsWith('image/'))
-  if (!file) return
-  readReference(file)
+  const imageFiles = [...(event.clipboardData?.files ?? [])]
+    .filter(item => item.type.startsWith('image/'))
+  if (!imageFiles.length) return
+  event.preventDefault()
+  void readReferences(imageFiles)
 }
 
 function onReferencePick(event: Event) {
   const input = event.target as HTMLInputElement
-  const file = input.files?.[0]
-  if (file) readReference(file)
+  const imageFiles = [...(input.files ?? [])]
+  if (imageFiles.length) void readReferences(imageFiles)
   input.value = ''
 }
 
-async function readReference(file: File) {
-  try {
-    ui.setReferenceImage(await createReferenceImage(file))
-    ui.dockOpen = true
-  } catch (error) {
-    ui.showToast(error instanceof Error ? error.message : String(error))
+async function readReferences(files: File[]) {
+  const availableReferenceSlots = MAX_REFERENCE_IMAGE_COUNT - ui.referenceImages.length
+  if (availableReferenceSlots <= 0) {
+    ui.showToast(`最多添加 ${MAX_REFERENCE_IMAGE_COUNT} 张参考图`)
+    return
+  }
+
+  const filesToRead = files.slice(0, availableReferenceSlots)
+  const referenceImages: ReferenceImage[] = []
+  let lastError = ''
+  for (const file of filesToRead) {
+    try {
+      referenceImages.push(await createReferenceImage(file))
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : String(error)
+    }
+  }
+
+  const addedReferenceCount = ui.addReferenceImages(referenceImages)
+  if (addedReferenceCount) ui.dockOpen = true
+
+  if (files.length > filesToRead.length) {
+    ui.showToast(`已添加 ${addedReferenceCount} 张，参考图最多 ${MAX_REFERENCE_IMAGE_COUNT} 张`)
+  } else if (lastError) {
+    ui.showToast(lastError)
   }
 }
 
@@ -447,15 +470,26 @@ watch(
         </div>
       </div>
 
-      <div v-if="ui.referenceImage" class="reference-strip">
-        <img :src="ui.referenceImage.previewUrl" alt="当前参考图" />
-        <div class="min-w-0 flex-1">
-          <p class="text-[11.5px] font-medium">已加入参考图</p>
-          <p class="mt-0.5 text-[10.5px] text-dim">本次将使用图片编辑模式，生成 1 张变体</p>
+      <div v-if="ui.referenceImages.length" class="reference-thumbnails" aria-label="已添加的参考图">
+        <div
+          v-for="(referenceImage, referenceIndex) in ui.referenceImages"
+          :key="referenceImage.previewUrl"
+          class="reference-thumbnail"
+          :title="referenceImage.fileName"
+        >
+          <img :src="referenceImage.previewUrl" :alt="`参考图 ${referenceIndex + 1}`" />
+          <button
+            class="reference-remove"
+            type="button"
+            :title="`移除参考图 ${referenceIndex + 1}`"
+            :aria-label="`移除参考图 ${referenceIndex + 1}`"
+            @click="ui.removeReferenceImage(referenceIndex)"
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true">
+              <path d="M6 6l12 12M18 6 6 18" />
+            </svg>
+          </button>
         </div>
-        <button class="icon-button !h-7 !w-7" title="移除参考图" aria-label="移除参考图" @click="ui.clearReferenceImage()">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 6l12 12M18 6 6 18" /></svg>
-        </button>
       </div>
 
       <div class="composer-row">
@@ -499,7 +533,7 @@ watch(
             <path d="m6 16 4-5 3 3.5L16 12l3 4H6Z" />
           </svg>
           <span>参考图</span>
-          <input type="file" accept="image/*" class="sr-only" aria-label="上传参考图" @change="onReferencePick" />
+          <input type="file" accept="image/*" multiple class="sr-only" aria-label="上传参考图" @change="onReferencePick" />
         </label>
 
         <div class="relative" data-dock-menu>
@@ -817,17 +851,58 @@ watch(
 }
 .inspiration-chip:hover { border-color: var(--color-accent); color: var(--color-accenthi); }
 
-.reference-strip {
+.reference-thumbnails {
   display: flex;
-  align-items: center;
-  gap: 10px;
+  gap: 8px;
+  overflow-x: auto;
   margin: 12px 14px 0;
-  border: 1px solid color-mix(in srgb, var(--color-accent) 28%, var(--color-line));
-  border-radius: 14px;
-  background: color-mix(in srgb, var(--color-accentsoft) 58%, var(--color-well));
-  padding: 7px 9px;
+  padding: 2px 2px 1px;
 }
-.reference-strip img { height: 42px; width: 42px; flex: none; border-radius: 9px; object-fit: cover; }
+.reference-thumbnail {
+  position: relative;
+  height: 48px;
+  width: 48px;
+  flex: none;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--color-accent) 32%, var(--color-line));
+  border-radius: 11px;
+  background: var(--color-panel2);
+  box-shadow: 0 3px 10px rgb(38 35 28 / 0.1);
+}
+.reference-thumbnail img {
+  height: 100%;
+  width: 100%;
+  object-fit: cover;
+  transition: filter 0.16s, transform 0.2s var(--ease-out-soft);
+}
+.reference-thumbnail:hover img,
+.reference-thumbnail:focus-within img {
+  filter: brightness(0.62);
+  transform: scale(1.04);
+}
+.reference-remove {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  display: flex;
+  height: 20px;
+  width: 20px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgb(255 255 255 / 0.45);
+  border-radius: 50%;
+  background: rgb(25 23 19 / 0.76);
+  box-shadow: 0 2px 7px rgb(0 0 0 / 0.2);
+  color: white;
+  opacity: 0;
+  transform: scale(0.8);
+  transition: opacity 0.16s, transform 0.2s var(--ease-out-soft);
+}
+.reference-thumbnail:hover .reference-remove,
+.reference-remove:focus-visible {
+  opacity: 1;
+  transform: scale(1);
+}
 
 .composer-row { display: flex; align-items: flex-end; gap: 10px; padding: 12px 14px 7px; }
 .composer-mark {

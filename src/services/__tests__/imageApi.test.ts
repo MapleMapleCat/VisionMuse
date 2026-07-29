@@ -16,7 +16,7 @@ describe('custom image API request templates', () => {
       response_format: 'b64_json',
     })
     expect(editBody).toMatchObject({
-      image: '{{referenceImageFile}}',
+      'image[]': '{{referenceImageFile}}',
       output_format: '{{format}}',
       response_format: 'b64_json',
     })
@@ -90,6 +90,27 @@ describe('custom image API request templates', () => {
 
     expect(formData.get('prompt')).toBe('make it cinematic')
     expect(formData.get('source')).toBeInstanceOf(Blob)
+  })
+
+  it('attaches multiple reference images to one multipart field', () => {
+    const firstReferenceBlob = new Blob(['first-reference'], { type: 'image/png' })
+    const secondReferenceBlob = new Blob(['second-reference'], { type: 'image/webp' })
+    const formData = buildMultipartRequestBody(
+      '{"image[]":"{{referenceImageFile}}","prompt":"{{prompt}}"}',
+      {
+        prompt: 'combine these references',
+        model: 'custom-image-model',
+        size: '1024x1024',
+        quality: 'medium',
+        format: 'png',
+        n: 1,
+        referenceImageFile: [firstReferenceBlob, secondReferenceBlob],
+        referenceFileName: ['first.png', 'second.webp'],
+      },
+    )
+
+    expect(formData.getAll('image[]')).toHaveLength(2)
+    expect(formData.getAll('image[]').every(value => value instanceof Blob)).toBe(true)
   })
 
   it('rejects file placeholders in JSON mode instead of serializing an empty object', () => {

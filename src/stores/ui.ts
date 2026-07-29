@@ -1,6 +1,12 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import type { GenParams, ImageRecord, PromptTemplate, ReferenceImage } from '@/types'
+import {
+  MAX_REFERENCE_IMAGE_COUNT,
+  type GenParams,
+  type ImageRecord,
+  type PromptTemplate,
+  type ReferenceImage,
+} from '@/types'
 import { revokeReferenceImage } from '@/services/imageAssets'
 import { useTemplateStore } from './templates'
 
@@ -9,7 +15,7 @@ export const useUiStore = defineStore('ui', () => {
   const dockOpen = ref(false)
   const draftPrompt = ref('')
   const draftParams = ref<GenParams>({ size: '1024x1024', quality: 'medium', format: 'png', n: 1 })
-  const referenceImage = ref<ReferenceImage | undefined>()
+  const referenceImages = ref<ReferenceImage[]>([])
 
   // 详情抽屉
   const viewerId = ref<string | null>(null)
@@ -46,24 +52,29 @@ export const useUiStore = defineStore('ui', () => {
   function remix(rec: ImageRecord) {
     draftPrompt.value = rec.prompt
     draftParams.value = { ...rec.params }
-    clearReferenceImage()
+    clearReferenceImages()
     dockOpen.value = true
     closeViewer()
   }
 
   // 用作参考图（img2img）
   function useAsReference(rec: ImageRecord) {
-    setReferenceImage({
+    const addedReferenceCount = addReferenceImages([{
       blob: rec.originalBlob,
       previewUrl: URL.createObjectURL(rec.originalBlob),
       fileName: `reference-${rec.id}.${rec.fileExtension === 'jpeg' ? 'jpg' : rec.fileExtension}`,
       mimeType: rec.mimeType,
       width: rec.width,
       height: rec.height,
-    })
+    }])
+    if (!addedReferenceCount) {
+      showToast(`最多添加 ${MAX_REFERENCE_IMAGE_COUNT} 张参考图`)
+      return false
+    }
     draftParams.value = { ...rec.params, n: 1 }
     dockOpen.value = true
     closeViewer()
+    return true
   }
 
   function useTemplate(tpl: PromptTemplate) {
@@ -77,21 +88,38 @@ export const useUiStore = defineStore('ui', () => {
     showToast('已存为模板')
   }
 
-  function setReferenceImage(nextReferenceImage: ReferenceImage) {
-    revokeReferenceImage(referenceImage.value)
-    referenceImage.value = nextReferenceImage
-    draftParams.value.n = 1
+  function addReferenceImages(nextReferenceImages: ReferenceImage[]) {
+    const availableReferenceSlots = MAX_REFERENCE_IMAGE_COUNT - referenceImages.value.length
+    const acceptedReferenceImages = nextReferenceImages.slice(0, availableReferenceSlots)
+    const rejectedReferenceImages = nextReferenceImages.slice(availableReferenceSlots)
+    for (const rejectedReferenceImage of rejectedReferenceImages) revokeReferenceImage(rejectedReferenceImage)
+
+    referenceImages.value.push(...acceptedReferenceImages)
+    if (acceptedReferenceImages.length) draftParams.value.n = 1
+    return acceptedReferenceImages.length
   }
 
-  function clearReferenceImage() {
-    revokeReferenceImage(referenceImage.value)
-    referenceImage.value = undefined
+  function removeReferenceImage(referenceIndex: number) {
+    const [removedReferenceImage] = referenceImages.value.splice(referenceIndex, 1)
+    revokeReferenceImage(removedReferenceImage)
+  }
+
+  function clearReferenceImages() {
+    for (const referenceImage of referenceImages.value) revokeReferenceImage(referenceImage)
+    referenceImages.value = []
+  }
+
+  function prepareReferenceImagesForSubmission(): ReferenceImage[] {
+    if (referenceImages.value.length) draftParams.value.n = 1
+    return referenceImages.value.map(referenceImage => ({ ...referenceImage, previewUrl: '' }))
   }
 
   return {
-    dockOpen, draftPrompt, draftParams, referenceImage,
+    dockOpen, draftPrompt, draftParams, referenceImages,
     viewerId, viewerList, lightbox, toast,
     showToast, openViewer, closeViewer, stepViewer,
-    remix, useAsReference, useTemplate, saveAsTemplate, setReferenceImage, clearReferenceImage,
+    remix, useAsReference, useTemplate, saveAsTemplate,
+    addReferenceImages, removeReferenceImage, clearReferenceImages,
+    prepareReferenceImagesForSubmission,
   }
 })
