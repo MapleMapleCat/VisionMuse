@@ -5,7 +5,10 @@ import {
   PROMPT_MODULE_CATEGORIES,
   type PromptModuleCategoryDefinition,
 } from '@/assets/prompt-modules'
-import { composePrompt } from '@/services/promptComposition'
+import {
+  composePrompt,
+  createPromptCompositionInput,
+} from '@/services/promptComposition'
 import { usePromptModuleStore } from '@/stores/promptModules'
 import { useTemplateStore } from '@/stores/templates'
 import { useUiStore } from '@/stores/ui'
@@ -43,7 +46,11 @@ const selectedPromptModules = computed(() => PROMPT_MODULE_CATEGORIES.flatMap(ca
     .map(moduleId => promptModuleStore.promptModules.find(promptModule => promptModule.id === moduleId))
     .filter((promptModule): promptModule is PromptModule => Boolean(promptModule))
 )))
-const composedPrompt = computed(() => composePrompt(corePrompt.value, selectedPromptModules.value))
+const promptCompositionInput = computed(() => createPromptCompositionInput(
+  corePrompt.value,
+  selectedPromptModules.value,
+))
+const composedPrompt = computed(() => composePrompt(promptCompositionInput.value))
 const selectedModuleCount = computed(() => selectedPromptModules.value.length)
 const selectedCategoryCount = computed(() => PROMPT_MODULE_CATEGORIES.filter(category => (
   selectedModuleIds[category.key].length > 0
@@ -394,7 +401,7 @@ onMounted(() => {
             <div class="mt-5">
               <p class="field-label">Final prompt</p>
               <div class="mt-2 min-h-36 rounded-xl border border-line bg-well p-4">
-                <p v-if="composedPrompt" class="text-[12.5px] leading-[1.8] text-paper">{{ composedPrompt }}</p>
+                <p v-if="composedPrompt" class="whitespace-pre-wrap text-[12.5px] leading-[1.8] text-paper">{{ composedPrompt }}</p>
                 <p v-else class="text-[11.5px] text-dim">最终提示词将在这里显示</p>
               </div>
             </div>
