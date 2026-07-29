@@ -1,15 +1,24 @@
 <script setup lang="ts">
-import { computed, nextTick, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import {
   PROMPT_TAXONOMY_DOMAINS,
   PROMPT_TAXONOMY_INDEX,
+  type IndexedPromptTaxonomyChoice,
   type IndexedPromptTaxonomyGroup,
 } from '@/assets/prompt-taxonomy'
-import {
-  getPromptChoiceAvailability,
-  getVisiblePromptTaxonomyGroups,
-} from '@/services/promptSelection'
+import PromptTaxonomyGroupCard from '@/components/prompt-composer/PromptTaxonomyGroupCard.vue'
+import { getVisiblePromptTaxonomyGroups } from '@/services/promptSelection'
 import type { PromptModule } from '@/types'
+
+interface PromptChoiceToggleRequest {
+  groupId: string
+  choiceId: string
+  firstChildGroupId?: string
+  interactionMode: 'keyboard' | 'pointer'
+}
+
+const BRANCH_CONVERGENCE_DELAY_MILLISECONDS = 260
+const FOCUS_FALLBACK_DELAY_MILLISECONDS = 320
 
 const props = defineProps<{
   promptModules: PromptModule[]
@@ -25,6 +34,9 @@ const emit = defineEmits<{
 const activeDomainId = ref(PROMPT_TAXONOMY_DOMAINS[0]?.id ?? '')
 const collapsedGroupIds = reactive(new Set<string>())
 const selectorRoot = ref<HTMLElement | null>(null)
+const pendingKeyboardFocusGroupId = ref<string>()
+const automaticCollapseTimeouts = new Map<string, number>()
+let focusFallbackTimeout: number | undefined
 
 const promptModulesById = computed(() => new Map(
   props.promptModules.map(promptModule => [promptModule.id, promptModule]),
@@ -34,9 +46,32 @@ const activeDomain = computed(() => (
   PROMPT_TAXONOMY_INDEX.domainsById.get(activeDomainId.value)
     ?? PROMPT_TAXONOMY_DOMAINS[0]
 ))
-const visibleGroups = computed(() => activeDomain.value
+const visibleDomainGroups = computed(() => activeDomain.value
   ? getVisiblePromptTaxonomyGroups(activeDomain.value.id, props.selectedChoiceIds)
   : [])
+const visibleRootGroups = computed(() => visibleDomainGroups.value.filter(indexedGroup => (
+  indexedGroup.parentChoiceId === undefined
+)))
+const visibleDomainGroupIds = computed<ReadonlySet<string>>(() => new Set(
+  visibleDomainGroups.value.map(indexedGroup => indexedGroup.group.id),
+))
+const activeDomainHasExpandedBranch = computed(() => props.selectedChoiceIds.some((choiceId) => {
+  const indexedChoice = PROMPT_TAXONOMY_INDEX.choicesById.get(choiceId)
+  if (!indexedChoice || indexedChoice.domain.id !== activeDomain.value?.id) return false
+  if (!isChoicePathExpanded(indexedChoice)) return false
+  return indexedChoice.choice.children?.some(childGroup => (
+    visibleDomainGroupIds.value.has(childGroup.id)
+  )) ?? false
+}))
+
+function isChoicePathExpanded(indexedChoice: IndexedPromptTaxonomyChoice): boolean {
+  const ancestorGroupIds = indexedChoice.ancestorChoiceIds
+    .map(ancestorChoiceId => PROMPT_TAXONOMY_INDEX.choicesById.get(ancestorChoiceId)?.group.id)
+    .filter((groupId): groupId is string => groupId !== undefined)
+  return [indexedChoice.group.id, ...ancestorGroupIds].every(groupId => (
+    !collapsedGroupIds.has(groupId)
+  ))
+}
 
 function getDomainSelectionCount(domainId: string): number {
   return props.selectedChoiceIds.filter(choiceId => (
@@ -44,220 +79,286 @@ function getDomainSelectionCount(domainId: string): number {
   )).length
 }
 
-function getGroupSelectedModules(indexedGroup: IndexedPromptTaxonomyGroup): PromptModule[] {
-  return [...indexedGroup.group.choices]
-    .sort((firstChoice, secondChoice) => firstChoice.sortOrder - secondChoice.sortOrder)
-    .filter(choice => selectedChoiceSet.value.has(choice.id))
-    .map(choice => promptModulesById.value.get(choice.id))
-    .filter((promptModule): promptModule is PromptModule => Boolean(promptModule))
+function getGroupSelectionCount(indexedGroup: IndexedPromptTaxonomyGroup): number {
+  return indexedGroup.group.choices.filter(choice => selectedChoiceSet.value.has(choice.id)).length
 }
 
-function getChoiceModule(choiceId: string): PromptModule | undefined {
-  return promptModulesById.value.get(choiceId)
+function groupHasReachedCollapseThreshold(groupId: string): boolean {
+  const indexedGroup = PROMPT_TAXONOMY_INDEX.groupsById.get(groupId)
+  if (!indexedGroup) return false
+  return getGroupSelectionCount(indexedGroup) >= indexedGroup.group.maxSelections
 }
 
-function getChoicePathHint(indexedGroup: IndexedPromptTaxonomyGroup): string {
-  const ancestorLabels = indexedGroup.ancestorChoiceIds
-    .map(choiceId => promptModulesById.value.get(choiceId)?.title)
-    .filter((label): label is string => Boolean(label))
-  return [indexedGroup.domain.label, ...ancestorLabels].join(' / ')
+function getBranchConvergenceGroupId(groupId: string): string {
+  const indexedGroup = PROMPT_TAXONOMY_INDEX.groupsById.get(groupId)
+  if (!indexedGroup?.parentChoiceId) return groupId
+  return PROMPT_TAXONOMY_INDEX.choicesById.get(indexedGroup.parentChoiceId)?.group.id ?? groupId
 }
 
-function getChoiceDisabledReason(choiceId: string): string | undefined {
-  const availability = getPromptChoiceAvailability(choiceId, props.selectedChoiceIds)
-  return availability.enabled ? undefined : availability.reason
+function cancelAutomaticCollapse(groupId: string) {
+  const timeout = automaticCollapseTimeouts.get(groupId)
+  if (timeout === undefined) return
+  window.clearTimeout(timeout)
+  automaticCollapseTimeouts.delete(groupId)
 }
 
-function isGroupCollapsed(indexedGroup: IndexedPromptTaxonomyGroup): boolean {
-  return collapsedGroupIds.has(indexedGroup.group.id)
-    && getGroupSelectedModules(indexedGroup).length > 0
+function cancelAllAutomaticCollapses() {
+  for (const groupId of [...automaticCollapseTimeouts.keys()]) {
+    cancelAutomaticCollapse(groupId)
+  }
 }
 
-function toggleGroupCollapse(groupId: string) {
-  if (collapsedGroupIds.has(groupId)) {
-    collapsedGroupIds.delete(groupId)
-    return
+function collapseGroupWithFocusSafety(groupId: string) {
+  const groupElement = selectorRoot.value?.querySelector<HTMLElement>(
+    `[data-taxonomy-group="${groupId}"]`,
+  )
+  const expandedRegion = groupElement?.querySelector<HTMLElement>('.taxonomy-expanded-region')
+  const activeElement = document.activeElement
+  if (activeElement instanceof HTMLElement && expandedRegion?.contains(activeElement)) {
+    groupElement
+      ?.querySelector<HTMLButtonElement>('[data-taxonomy-collapse]')
+      ?.focus({ preventScroll: true })
   }
   collapsedGroupIds.add(groupId)
 }
 
-function handleChoiceToggle(indexedGroup: IndexedPromptTaxonomyGroup, choiceId: string) {
-  const isCurrentlySelected = selectedChoiceSet.value.has(choiceId)
-  const disabledReason = getChoiceDisabledReason(choiceId)
-  if (!isCurrentlySelected && disabledReason) return
+function scheduleBranchConvergence(endpointGroupId: string) {
+  cancelAllAutomaticCollapses()
+  const timeout = window.setTimeout(() => {
+    automaticCollapseTimeouts.delete(endpointGroupId)
+    if (!groupHasReachedCollapseThreshold(endpointGroupId)) return
+    collapseGroupWithFocusSafety(getBranchConvergenceGroupId(endpointGroupId))
+  }, BRANCH_CONVERGENCE_DELAY_MILLISECONDS)
+  automaticCollapseTimeouts.set(endpointGroupId, timeout)
+}
 
-  const firstChildGroupId = indexedGroup.group.choices
-    .find(choice => choice.id === choiceId)
-    ?.children?.[0]?.id
-  emit('toggleChoice', choiceId)
+function clearPendingKeyboardFocus() {
+  pendingKeyboardFocusGroupId.value = undefined
+  if (focusFallbackTimeout === undefined) return
+  window.clearTimeout(focusFallbackTimeout)
+  focusFallbackTimeout = undefined
+}
+
+function focusFirstAvailableChoice(groupId: string): boolean {
+  const groupElement = selectorRoot.value?.querySelector<HTMLElement>(
+    `[data-taxonomy-group="${groupId}"]`,
+  )
+  const firstAvailableChoice = groupElement?.querySelector<HTMLButtonElement>(
+    '.taxonomy-choice:not([aria-disabled="true"])',
+  )
+  if (!firstAvailableChoice) return false
+  firstAvailableChoice.focus({ preventScroll: true })
+  firstAvailableChoice.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+  return true
+}
+
+function scheduleKeyboardFocusFallback(groupId: string) {
+  if (focusFallbackTimeout !== undefined) window.clearTimeout(focusFallbackTimeout)
+  focusFallbackTimeout = window.setTimeout(() => {
+    focusFallbackTimeout = undefined
+    if (pendingKeyboardFocusGroupId.value !== groupId) return
+
+    focusFirstAvailableChoice(groupId)
+    pendingKeyboardFocusGroupId.value = undefined
+  }, FOCUS_FALLBACK_DELAY_MILLISECONDS)
+}
+
+function handleGroupAfterEnter(enteredGroupId: string) {
+  if (pendingKeyboardFocusGroupId.value !== enteredGroupId) return
+  if (focusFirstAvailableChoice(enteredGroupId)) {
+    pendingKeyboardFocusGroupId.value = undefined
+    if (focusFallbackTimeout !== undefined) {
+      window.clearTimeout(focusFallbackTimeout)
+      focusFallbackTimeout = undefined
+    }
+  }
+}
+
+function handleChoiceToggle(request: PromptChoiceToggleRequest) {
+  const indexedGroup = PROMPT_TAXONOMY_INDEX.groupsById.get(request.groupId)
+  if (!indexedGroup) return
+
+  const isCurrentlySelected = selectedChoiceSet.value.has(request.choiceId)
+  cancelAllAutomaticCollapses()
+  clearPendingKeyboardFocus()
+  if (
+    !isCurrentlySelected
+    && request.firstChildGroupId
+    && request.interactionMode === 'keyboard'
+  ) {
+    pendingKeyboardFocusGroupId.value = request.firstChildGroupId
+    scheduleKeyboardFocusFallback(request.firstChildGroupId)
+  }
+
+  emit('toggleChoice', request.choiceId)
+
   if (isCurrentlySelected) {
-    collapsedGroupIds.delete(indexedGroup.group.id)
+    collapsedGroupIds.delete(request.groupId)
     return
   }
 
   const selectedCountAfterChoice = indexedGroup.group.selectionMode === 'single'
     ? 1
-    : getGroupSelectedModules(indexedGroup).length + 1
-  if (selectedCountAfterChoice >= indexedGroup.group.maxSelections) {
-    collapsedGroupIds.add(indexedGroup.group.id)
-  }
-
-  if (firstChildGroupId) {
-    void nextTick(() => {
-      selectorRoot.value
-        ?.querySelector<HTMLButtonElement>(
-          `[data-taxonomy-group="${firstChildGroupId}"] .taxonomy-choice:not(:disabled)`,
-        )
-        ?.focus()
-    })
+    : getGroupSelectionCount(indexedGroup) + 1
+  const shouldConvergeCompletedBranch = !request.firstChildGroupId
+    && selectedCountAfterChoice >= indexedGroup.group.maxSelections
+  if (shouldConvergeCompletedBranch) {
+    scheduleBranchConvergence(request.groupId)
   }
 }
 
+function toggleGroupCollapse(groupId: string) {
+  cancelAllAutomaticCollapses()
+  if (collapsedGroupIds.has(groupId)) {
+    collapsedGroupIds.delete(groupId)
+    return
+  }
+  collapseGroupWithFocusSafety(groupId)
+}
+
 function clearGroup(groupId: string) {
+  cancelAllAutomaticCollapses()
   collapsedGroupIds.delete(groupId)
   emit('clearGroup', groupId)
 }
 
 function clearActiveDomain() {
   if (!activeDomain.value) return
+  cancelAllAutomaticCollapses()
   for (const indexedGroup of PROMPT_TAXONOMY_INDEX.groupsById.values()) {
-    if (indexedGroup.domain.id === activeDomain.value.id) {
-      collapsedGroupIds.delete(indexedGroup.group.id)
-    }
+    if (indexedGroup.domain.id !== activeDomain.value.id) continue
+    collapsedGroupIds.delete(indexedGroup.group.id)
   }
   emit('clearDomain', activeDomain.value.id)
 }
+
+function selectDomain(domainId: string, clickEvent: MouseEvent) {
+  if (domainId === activeDomainId.value) return
+  cancelAllAutomaticCollapses()
+  activeDomainId.value = domainId
+  clearPendingKeyboardFocus()
+  const domainButton = clickEvent.currentTarget as HTMLButtonElement | null
+  domainButton?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+}
+
+function handleRootGroupAfterEnter(enteredElement: Element) {
+  const enteredGroupId = enteredElement.getAttribute('data-taxonomy-group')
+  if (enteredGroupId) handleGroupAfterEnter(enteredGroupId)
+}
+
+watch(
+  () => props.selectedChoiceIds,
+  () => {
+    for (const pendingGroupId of [...automaticCollapseTimeouts.keys()]) {
+      if (groupHasReachedCollapseThreshold(pendingGroupId)) continue
+      cancelAutomaticCollapse(pendingGroupId)
+    }
+
+    for (const collapsedGroupId of [...collapsedGroupIds]) {
+      const indexedGroup = PROMPT_TAXONOMY_INDEX.groupsById.get(collapsedGroupId)
+      if (indexedGroup && getGroupSelectionCount(indexedGroup) > 0) continue
+      cancelAutomaticCollapse(collapsedGroupId)
+      collapsedGroupIds.delete(collapsedGroupId)
+    }
+  },
+)
+
+onBeforeUnmount(() => {
+  cancelAllAutomaticCollapses()
+  clearPendingKeyboardFocus()
+})
 </script>
 
 <template>
   <section ref="selectorRoot" class="taxonomy-shell rounded-2xl border border-line bg-well p-4 shadow-card">
-    <div class="flex flex-wrap items-start justify-between gap-3">
+    <div class="taxonomy-shell-heading">
       <div>
         <p class="field-label">Progressive taxonomy</p>
         <h2 class="mt-1 text-[15px] font-semibold">分级选择路径</h2>
       </div>
-      <button
-        v-if="activeDomain && getDomainSelectionCount(activeDomain.id)"
-        class="btn btn-ghost !px-2.5 !py-1.5 text-[10.5px]"
-        @click="clearActiveDomain"
-      >清除此领域</button>
+      <p class="taxonomy-shell-hint">沿点击处向下细化，完成末级选择后整条分支自动收拢</p>
     </div>
 
-    <nav class="taxonomy-domain-grid mt-4" aria-label="提示词分类领域">
-      <button
-        v-for="(domain, domainIndex) in PROMPT_TAXONOMY_DOMAINS"
-        :key="domain.id"
-        class="taxonomy-domain-button"
-        :class="{ 'is-active': activeDomain?.id === domain.id }"
-        :aria-current="activeDomain?.id === domain.id ? 'step' : undefined"
-        @click="activeDomainId = domain.id"
-      >
-        <span class="taxonomy-domain-index">{{ String(domainIndex + 1).padStart(2, '0') }}</span>
-        <span class="min-w-0 flex-1 truncate text-left">{{ domain.label }}</span>
-        <span v-if="getDomainSelectionCount(domain.id)" class="taxonomy-domain-count">
-          {{ getDomainSelectionCount(domain.id) }}
-        </span>
-      </button>
-    </nav>
-
-    <div v-if="activeDomain" class="mt-5">
-      <div class="taxonomy-domain-heading">
-        <div>
-          <h3 class="text-[14px] font-semibold">{{ activeDomain.label }}</h3>
-          <p class="mt-1 text-[11px] leading-relaxed text-dim">{{ activeDomain.description }}</p>
-        </div>
-        <span class="taxonomy-progress-badge">
-          {{ getDomainSelectionCount(activeDomain.id) }} 项
-        </span>
-      </div>
-
-      <div class="mt-4 space-y-2.5">
-        <article
-          v-for="(indexedGroup, groupIndex) in visibleGroups"
-          :key="indexedGroup.group.id"
-          :data-taxonomy-group="indexedGroup.group.id"
-          class="taxonomy-group"
-          :class="{
-            'is-nested': indexedGroup.ancestorChoiceIds.length > 0,
-            'is-collapsed': isGroupCollapsed(indexedGroup),
-          }"
+    <div class="taxonomy-layout mt-4">
+      <nav class="taxonomy-domain-rail" aria-label="提示词分类领域">
+        <button
+          v-for="(domain, domainIndex) in PROMPT_TAXONOMY_DOMAINS"
+          :key="domain.id"
+          class="taxonomy-domain-button"
+          :class="{ 'is-active': activeDomain?.id === domain.id }"
+          :aria-pressed="activeDomain?.id === domain.id"
+          @click="selectDomain(domain.id, $event)"
         >
-          <header class="flex items-start justify-between gap-3">
-            <div class="min-w-0">
-              <p class="taxonomy-path">{{ getChoicePathHint(indexedGroup) }}</p>
-              <div class="mt-1 flex items-center gap-2">
-                <span class="taxonomy-level">{{ String(groupIndex + 1).padStart(2, '0') }}</span>
-                <h4 class="text-[12.5px] font-semibold">{{ indexedGroup.group.label }}</h4>
-              </div>
-              <p
-                v-if="!isGroupCollapsed(indexedGroup)"
-                class="mt-1.5 text-[10.5px] leading-relaxed text-dim"
-              >{{ indexedGroup.group.description }}</p>
-            </div>
-
-            <div class="flex shrink-0 items-center gap-1.5">
-              <span class="font-mono text-[9px] text-dim">
-                {{ getGroupSelectedModules(indexedGroup).length }} / {{ indexedGroup.group.maxSelections }}
-              </span>
-              <button
-                v-if="getGroupSelectedModules(indexedGroup).length"
-                class="taxonomy-icon-button"
-                :class="{ 'is-expanded': !isGroupCollapsed(indexedGroup) }"
-                :aria-label="isGroupCollapsed(indexedGroup) ? `展开${indexedGroup.group.label}` : `折叠${indexedGroup.group.label}`"
-                @click="toggleGroupCollapse(indexedGroup.group.id)"
-              >
-                <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
-                  <path d="m6 9 6 6 6-6" />
-                </svg>
-              </button>
-              <button
-                v-if="getGroupSelectedModules(indexedGroup).length"
-                class="taxonomy-icon-button is-danger"
-                :aria-label="`清除${indexedGroup.group.label}`"
-                @click="clearGroup(indexedGroup.group.id)"
-              >
-                <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
-                  <path d="m8 8 8 8M16 8l-8 8" />
-                </svg>
-              </button>
-            </div>
-          </header>
-
-          <div v-if="isGroupCollapsed(indexedGroup)" class="mt-2 flex flex-wrap gap-1.5">
+          <span class="taxonomy-domain-index">
+            {{ String(domainIndex + 1).padStart(2, '0') }}
+          </span>
+          <span class="taxonomy-domain-label">{{ domain.label }}</span>
+          <Transition name="taxonomy-domain-count" mode="out-in">
             <span
-              v-for="promptModule in getGroupSelectedModules(indexedGroup)"
-              :key="promptModule.id"
-              class="taxonomy-collapsed-choice"
-            >{{ promptModule.title }}</span>
-          </div>
-
-          <div v-else class="taxonomy-choice-grid mt-3">
-            <button
-              v-for="choice in indexedGroup.group.choices"
-              :key="choice.id"
-              class="taxonomy-choice"
-              :class="{
-                'is-selected': selectedChoiceSet.has(choice.id),
-                'has-children': choice.children?.length,
-              }"
-              :disabled="!selectedChoiceSet.has(choice.id) && Boolean(getChoiceDisabledReason(choice.id))"
-              :aria-pressed="selectedChoiceSet.has(choice.id)"
-              :title="getChoiceDisabledReason(choice.id) ?? getChoiceModule(choice.id)?.content"
-              @click="handleChoiceToggle(indexedGroup, choice.id)"
+              v-if="getDomainSelectionCount(domain.id)"
+              :key="getDomainSelectionCount(domain.id)"
+              class="taxonomy-domain-count"
             >
-              <span class="taxonomy-choice-title">
-                <span>{{ getChoiceModule(choice.id)?.title ?? choice.id }}</span>
-                <span v-if="selectedChoiceSet.has(choice.id)" aria-hidden="true">✓</span>
-              </span>
-              <small v-if="choice.children?.length">选择后继续细化</small>
-              <small v-else-if="getChoiceDisabledReason(choice.id)">{{ getChoiceDisabledReason(choice.id) }}</small>
-            </button>
+              {{ getDomainSelectionCount(domain.id) }}
+            </span>
+          </Transition>
+        </button>
+      </nav>
+
+      <main class="min-w-0">
+        <Transition name="taxonomy-domain-panel" mode="out-in">
+          <div v-if="activeDomain" :key="activeDomain.id" class="taxonomy-domain-panel">
+            <div class="taxonomy-domain-heading">
+              <div class="min-w-0">
+                <div class="flex items-center gap-2">
+                  <h3 class="text-[14px] font-semibold">{{ activeDomain.label }}</h3>
+                  <span class="taxonomy-progress-badge">
+                    {{ getDomainSelectionCount(activeDomain.id) }} 项
+                  </span>
+                </div>
+                <p class="mt-1 text-[11px] leading-relaxed text-dim">
+                  {{ activeDomain.description }}
+                </p>
+              </div>
+              <button
+                v-if="getDomainSelectionCount(activeDomain.id)"
+                class="btn btn-ghost !px-2.5 !py-1.5 text-[10.5px]"
+                @click="clearActiveDomain"
+              >
+                清除此领域
+              </button>
+            </div>
+
+            <TransitionGroup
+              name="taxonomy-group-list"
+              tag="div"
+              class="taxonomy-group-list"
+              :class="{ 'has-expanded-branch': activeDomainHasExpandedBranch }"
+              @after-enter="handleRootGroupAfterEnter"
+            >
+              <PromptTaxonomyGroupCard
+                v-for="(indexedGroup, groupIndex) in visibleRootGroups"
+                :key="indexedGroup.group.id"
+                :indexed-group="indexedGroup"
+                :prompt-modules-by-id="promptModulesById"
+                :selected-choice-ids="selectedChoiceIds"
+                :visible-group-ids="visibleDomainGroupIds"
+                :collapsed-group-ids="collapsedGroupIds"
+                :display-index="groupIndex"
+                @toggle-choice="handleChoiceToggle"
+                @toggle-collapse="toggleGroupCollapse"
+                @clear-group="clearGroup"
+                @group-after-enter="handleGroupAfterEnter"
+              />
+
+              <div v-if="!visibleRootGroups.length" key="empty" class="taxonomy-empty-state">
+                <span class="taxonomy-empty-icon" aria-hidden="true">↳</span>
+                <span>请先完成关联的上级选择，再进入此领域细化。</span>
+              </div>
+            </TransitionGroup>
           </div>
-        </article>
-        <div v-if="!visibleGroups.length" class="taxonomy-empty-state">
-          请先完成关联的上级选择，再进入此领域细化。
-        </div>
-      </div>
+        </Transition>
+      </main>
     </div>
   </section>
 </template>
@@ -266,48 +367,141 @@ function clearActiveDomain() {
 .taxonomy-shell {
   background: color-mix(in srgb, var(--color-well) 96%, var(--color-accentsoft));
 }
-.taxonomy-domain-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 6px;
-}
-.taxonomy-domain-button {
+
+.taxonomy-shell-heading {
   display: flex;
-  min-height: 36px;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.taxonomy-shell-hint {
+  max-width: 270px;
+  color: var(--color-dim);
+  font-size: 10px;
+  line-height: 1.5;
+  text-align: right;
+}
+
+.taxonomy-layout {
+  display: grid;
+  gap: 16px;
+}
+
+.taxonomy-domain-rail {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding: 2px 2px 7px;
+  scroll-snap-type: x proximity;
+  scrollbar-width: none;
+}
+
+.taxonomy-domain-rail::-webkit-scrollbar {
+  display: none;
+}
+
+.taxonomy-domain-button {
+  position: relative;
+  display: flex;
+  min-width: 132px;
+  min-height: 38px;
+  flex: 0 0 auto;
   align-items: center;
   gap: 8px;
+  overflow: hidden;
   border: 1px solid var(--color-line);
   border-radius: 9px;
   background: color-mix(in srgb, var(--color-ink) 42%, var(--color-well));
   padding: 7px 9px;
-  font-size: 11px;
-  font-weight: 600;
   color: var(--color-fade);
-  transition: border-color 0.16s, background 0.16s, color 0.16s;
+  font-size: 10.75px;
+  font-weight: 600;
+  scroll-snap-align: start;
+  transition:
+    border-color var(--motion-fast) ease,
+    background var(--motion-fast) ease,
+    color var(--motion-fast) ease,
+    transform var(--motion-fast) var(--ease-out-soft),
+    box-shadow var(--motion-fast) ease;
 }
+
+.taxonomy-domain-button::before {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: var(--color-accent);
+  content: '';
+  opacity: 0;
+  transform: scaleY(0.35);
+  transition:
+    opacity var(--motion-fast) ease,
+    transform var(--motion-normal) var(--ease-out-soft);
+}
+
 .taxonomy-domain-button:hover {
   border-color: var(--color-line2);
   color: var(--color-paper);
+  transform: translateY(-1px);
 }
+
 .taxonomy-domain-button.is-active {
-  border-color: var(--color-accent);
+  border-color: color-mix(in srgb, var(--color-accent) 70%, var(--color-line));
   background: var(--color-accentsoft);
   color: var(--color-accenthi);
+  box-shadow: 0 4px 12px rgb(31 110 98 / 0.08);
 }
+
+.taxonomy-domain-button.is-active::before {
+  opacity: 1;
+  transform: scaleY(1);
+}
+
 .taxonomy-domain-index {
+  flex: none;
+  color: var(--color-dim);
   font-family: var(--font-mono);
   font-size: 8.5px;
-  color: var(--color-dim);
 }
+
+.taxonomy-domain-label {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .taxonomy-domain-count,
 .taxonomy-progress-badge {
   border-radius: 999px;
   background: color-mix(in srgb, var(--color-accent) 16%, transparent);
   padding: 2px 6px;
+  color: var(--color-accenthi);
   font-family: var(--font-mono);
   font-size: 8.5px;
-  color: var(--color-accenthi);
 }
+
+.taxonomy-domain-count {
+  flex: none;
+}
+
+.taxonomy-domain-count-enter-active,
+.taxonomy-domain-count-leave-active {
+  transition: opacity var(--motion-fast) ease, transform var(--motion-fast) var(--ease-spring);
+}
+
+.taxonomy-domain-count-enter-from,
+.taxonomy-domain-count-leave-to {
+  opacity: 0;
+  transform: scale(0.7);
+}
+
+.taxonomy-domain-panel {
+  min-width: 0;
+}
+
 .taxonomy-domain-heading {
   display: flex;
   align-items: flex-start;
@@ -316,143 +510,154 @@ function clearActiveDomain() {
   border-bottom: 1px solid var(--color-line);
   padding-bottom: 12px;
 }
-.taxonomy-group {
-  border: 1px solid var(--color-line);
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--color-ink) 32%, var(--color-well));
-  padding: 13px;
-  transition: border-color 0.16s, background 0.16s;
+
+.taxonomy-domain-panel-enter-active {
+  transition: opacity 180ms ease, transform 180ms var(--ease-out-soft);
 }
-.taxonomy-group.is-nested {
-  margin-left: 12px;
-  border-left-color: var(--color-accent);
-  background: color-mix(in srgb, var(--color-accentsoft) 32%, var(--color-well));
+
+.taxonomy-domain-panel-leave-active {
+  transition: opacity 100ms ease, transform 100ms ease;
 }
-.taxonomy-group.is-collapsed {
-  padding-block: 10px;
+
+.taxonomy-domain-panel-enter-from {
+  opacity: 0;
+  transform: translateY(8px);
 }
-.taxonomy-path {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-family: var(--font-mono);
-  font-size: 8.5px;
-  color: var(--color-dim);
+
+.taxonomy-domain-panel-leave-to {
+  opacity: 0;
+  transform: translateY(-4px);
 }
-.taxonomy-level {
-  display: inline-flex;
-  min-width: 23px;
-  height: 18px;
-  align-items: center;
-  justify-content: center;
-  border-radius: 5px;
-  background: var(--color-accentsoft);
-  font-family: var(--font-mono);
-  font-size: 8px;
-  color: var(--color-accenthi);
-}
-.taxonomy-icon-button {
-  display: inline-flex;
-  width: 24px;
-  height: 24px;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid var(--color-line);
-  border-radius: 7px;
-  color: var(--color-dim);
-}
-.taxonomy-icon-button:hover {
-  border-color: var(--color-line2);
-  color: var(--color-paper);
-}
-.taxonomy-icon-button.is-danger:hover {
-  border-color: color-mix(in srgb, var(--color-red) 55%, var(--color-line));
-  color: var(--color-red);
-}
-.taxonomy-icon-button svg {
-  width: 12px;
-  height: 12px;
-  transition: transform 0.18s var(--ease-out-soft);
-}
-.taxonomy-icon-button.is-expanded svg {
-  transform: rotate(180deg);
-}
-.taxonomy-choice-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 6px;
-}
-.taxonomy-choice {
+
+.taxonomy-group-list {
+  position: relative;
   display: flex;
-  min-height: 36px;
   flex-direction: column;
-  justify-content: center;
-  gap: 3px;
-  border: 1px solid var(--color-line);
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--color-ink) 45%, var(--color-well));
-  padding: 7px 9px;
-  text-align: left;
-  transition: border-color 0.16s, background 0.16s, transform 0.16s;
+  gap: 10px;
+  margin-top: 14px;
 }
-.taxonomy-choice:hover:not(:disabled) {
-  border-color: var(--color-line2);
-  transform: translateY(-1px);
+
+.taxonomy-group-list.has-expanded-branch > :deep(.taxonomy-group-card:not(.has-open-branch)) {
+  opacity: 0.74;
 }
-.taxonomy-choice.is-selected {
-  border-color: var(--color-accent);
-  background: var(--color-accentsoft);
+
+.taxonomy-group-list.has-expanded-branch > :deep(.taxonomy-group-card:not(.has-open-branch):hover) {
+  opacity: 1;
 }
-.taxonomy-choice.has-children:not(.is-selected) {
-  border-style: dashed;
+
+.taxonomy-group-list.has-expanded-branch
+  > :deep(.taxonomy-group-card:not(.has-open-branch) > .taxonomy-group-header > .taxonomy-group-heading-copy),
+.taxonomy-group-list.has-expanded-branch
+  > :deep(.taxonomy-group-card:not(.has-open-branch) > .taxonomy-expanded-region > .taxonomy-region-inner > .taxonomy-group-description),
+.taxonomy-group-list.has-expanded-branch
+  > :deep(.taxonomy-group-card:not(.has-open-branch) > .taxonomy-expanded-region > .taxonomy-region-inner > .taxonomy-choice-stack > .taxonomy-choice-row > .taxonomy-choice-grid > .taxonomy-choice > *) {
+  filter: blur(0.65px) saturate(0.9);
 }
-.taxonomy-choice:disabled {
-  cursor: not-allowed;
-  opacity: 0.42;
+
+.taxonomy-group-list.has-expanded-branch
+  > :deep(.taxonomy-group-card:not(.has-open-branch):hover > .taxonomy-group-header > .taxonomy-group-heading-copy),
+.taxonomy-group-list.has-expanded-branch
+  > :deep(.taxonomy-group-card:not(.has-open-branch):hover > .taxonomy-expanded-region > .taxonomy-region-inner > .taxonomy-group-description),
+.taxonomy-group-list.has-expanded-branch
+  > :deep(.taxonomy-group-card:not(.has-open-branch):hover > .taxonomy-expanded-region > .taxonomy-region-inner > .taxonomy-choice-stack > .taxonomy-choice-row > .taxonomy-choice-grid > .taxonomy-choice > *) {
+  filter: none;
 }
-.taxonomy-choice-title {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 7px;
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--color-paper);
+
+:deep(.taxonomy-group-list-enter-active) {
+  transition:
+    opacity var(--motion-normal) ease,
+    transform var(--motion-normal) var(--ease-out-soft);
 }
-.taxonomy-choice.is-selected .taxonomy-choice-title {
-  color: var(--color-accenthi);
+
+:deep(.taxonomy-group-list-leave-active) {
+  position: absolute;
+  inset-inline-start: var(--taxonomy-active-offset, 0px);
+  width: calc(100% - var(--taxonomy-active-offset, 0px));
+  margin-inline-start: 0;
+  transition:
+    opacity var(--motion-fast) ease,
+    transform var(--motion-fast) ease;
 }
-.taxonomy-choice small {
-  font-size: 8.5px;
-  color: var(--color-dim);
+
+:deep(.taxonomy-group-list-enter-from) {
+  opacity: 0;
+  transform: translateY(10px) scale(0.992);
 }
-.taxonomy-collapsed-choice {
-  border: 1px solid color-mix(in srgb, var(--color-accent) 42%, var(--color-line));
-  border-radius: 999px;
-  background: var(--color-accentsoft);
-  padding: 3px 8px;
-  font-size: 10px;
-  color: var(--color-accenthi);
+
+:deep(.taxonomy-group-list-leave-to) {
+  opacity: 0;
+  transform: translateY(-6px) scale(0.992);
 }
+
+:deep(.taxonomy-group-list-move) {
+  transition: transform var(--motion-normal) var(--ease-out-soft);
+}
+
 .taxonomy-empty-state {
+  display: flex;
+  min-height: 84px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
   border: 1px dashed var(--color-line2);
   border-radius: 11px;
   padding: 18px;
-  text-align: center;
-  font-size: 11px;
   color: var(--color-dim);
+  font-size: 11px;
+  text-align: center;
 }
-@media (min-width: 640px) {
-  .taxonomy-domain-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+
+.taxonomy-empty-icon {
+  color: var(--color-accent);
+  font-family: var(--font-mono);
+  font-size: 15px;
+}
+
+@media (min-width: 880px) {
+  .taxonomy-layout {
+    grid-template-columns: 166px minmax(0, 1fr);
+    align-items: start;
   }
-  .taxonomy-choice-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+
+  .taxonomy-domain-rail {
+    position: sticky;
+    top: 12px;
+    display: flex;
+    flex-direction: column;
+    overflow: visible;
+    padding: 0 12px 0 0;
+    border-right: 1px solid var(--color-line);
+  }
+
+  .taxonomy-domain-button {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .taxonomy-domain-button:hover {
+    transform: translateX(2px);
   }
 }
-@media (min-width: 1024px) {
-  .taxonomy-choice-grid {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+
+@media (max-width: 520px) {
+  .taxonomy-shell-heading {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 5px;
+  }
+
+  .taxonomy-shell-hint {
+    max-width: none;
+    text-align: left;
+  }
+
+  .taxonomy-domain-heading {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .taxonomy-domain-heading .btn {
+    align-self: flex-start;
   }
 }
 </style>

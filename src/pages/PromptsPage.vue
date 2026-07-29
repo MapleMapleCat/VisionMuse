@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { PROMPT_TAXONOMY_CHOICE_COUNT } from '@/assets/prompt-taxonomy'
 import PromptTaxonomySelector from '@/components/prompt-composer/PromptTaxonomySelector.vue'
@@ -29,6 +29,8 @@ const router = useRouter()
 const activeView = ref<'modules' | 'templates'>('modules')
 const corePrompt = ref('')
 const selectedChoiceIds = ref<string[]>([])
+const promptPreviewIsUpdating = ref(false)
+let promptPreviewUpdateTimeout: number | undefined
 
 const selectedChoiceDetails = computed(() => getSelectedPromptChoiceDetails(
   selectedChoiceIds.value,
@@ -83,6 +85,19 @@ function clearComposition() {
 
 function removePromptChoice(choiceId: string) {
   applySelectionMutation(togglePromptChoice(selectedChoiceIds.value, choiceId), true)
+}
+
+function showPromptPreviewUpdateFeedback() {
+  promptPreviewIsUpdating.value = false
+  void nextTick(() => {
+    promptPreviewIsUpdating.value = true
+    if (promptPreviewUpdateTimeout !== undefined) {
+      window.clearTimeout(promptPreviewUpdateTimeout)
+    }
+    promptPreviewUpdateTimeout = window.setTimeout(() => {
+      promptPreviewIsUpdating.value = false
+    }, 280)
+  })
 }
 
 function getSelectionPath(selectedChoiceDetail: SelectedPromptChoiceDetail): string {
@@ -194,6 +209,14 @@ onMounted(() => {
   activeView.value = 'templates'
   useTemplate(requestedTemplate)
 })
+
+watch(selectedChoiceIds, showPromptPreviewUpdateFeedback)
+
+onBeforeUnmount(() => {
+  if (promptPreviewUpdateTimeout !== undefined) {
+    window.clearTimeout(promptPreviewUpdateTimeout)
+  }
+})
 </script>
 
 <template>
@@ -221,7 +244,12 @@ onMounted(() => {
     </header>
 
     <div class="min-h-0 flex-1 overflow-y-auto px-6 pb-44 pt-5">
-      <div v-if="activeView === 'modules'" class="mx-auto grid max-w-[1220px] gap-5 xl:grid-cols-[minmax(0,1fr)_370px]">
+      <Transition name="prompt-tool-view" mode="out-in">
+      <div
+        v-if="activeView === 'modules'"
+        key="modules"
+        class="mx-auto grid max-w-[1220px] gap-5 xl:grid-cols-[minmax(0,1fr)_370px]"
+      >
         <div class="order-2 min-w-0 xl:order-1">
           <PromptTaxonomySelector
             :prompt-modules="promptModuleStore.promptModules"
@@ -268,13 +296,22 @@ onMounted(() => {
                 <p class="field-label">Module track</p>
                 <h3 class="mt-1 text-[13px] font-semibold">选择的提示词片段</h3>
               </div>
-              <span class="rounded-full bg-accentsoft px-2.5 py-1 font-mono text-[10px] text-accenthi">
-                {{ selectedModuleCount }} 项 · {{ selectedGroupCount }} 组
-              </span>
+              <Transition name="composer-count" mode="out-in">
+                <span
+                  :key="`${selectedModuleCount}-${selectedGroupCount}`"
+                  class="rounded-full bg-accentsoft px-2.5 py-1 font-mono text-[10px] text-accenthi"
+                >
+                  {{ selectedModuleCount }} 项 · {{ selectedGroupCount }} 组
+                </span>
+              </Transition>
             </div>
 
             <div class="mt-3 min-h-24 rounded-xl border border-line bg-ink/45 p-3">
-              <div v-if="selectedChoiceDetails.length" class="flex flex-wrap gap-1.5">
+              <TransitionGroup
+                name="track-segment-list"
+                tag="div"
+                class="track-segment-list"
+              >
                 <button
                   v-for="selectedChoiceDetail in selectedChoiceDetails"
                   :key="selectedChoiceDetail.choiceId"
@@ -286,13 +323,22 @@ onMounted(() => {
                   {{ getSelectionPath(selectedChoiceDetail) }}
                   <span aria-hidden="true">×</span>
                 </button>
-              </div>
-              <p v-else class="text-[11.5px] text-dim">尚未选择模块</p>
+                <p
+                  v-if="!selectedChoiceDetails.length"
+                  key="empty"
+                  class="track-empty-state"
+                >
+                  尚未选择模块
+                </p>
+              </TransitionGroup>
             </div>
 
             <div class="mt-5">
               <p class="field-label">Final prompt</p>
-              <div class="mt-2 min-h-36 rounded-xl border border-line bg-well p-4">
+              <div
+                class="final-prompt-panel mt-2 min-h-36 rounded-xl border border-line bg-well p-4"
+                :class="{ 'is-updating': promptPreviewIsUpdating }"
+              >
                 <p v-if="composedPrompt" class="whitespace-pre-wrap text-[12.5px] leading-[1.8] text-paper">{{ composedPrompt }}</p>
                 <p v-else class="text-[11.5px] text-dim">最终提示词将在这里显示</p>
               </div>
@@ -306,7 +352,7 @@ onMounted(() => {
         </aside>
       </div>
 
-      <div v-else class="mx-auto max-w-[1180px]">
+      <div v-else key="templates" class="mx-auto max-w-[1180px]">
         <section class="mb-4 rounded-2xl border border-line bg-well p-4 shadow-card">
           <p class="text-[12.5px] font-semibold">完整提示词独立保留</p>
           <p class="mt-1 text-[11px] leading-relaxed text-dim">它们不会参与模块推荐。含变量的提示词必须填写完整后才能进入创作。</p>
@@ -351,6 +397,7 @@ onMounted(() => {
           </article>
         </div>
       </div>
+      </Transition>
     </div>
 
     <Teleport to="body">
@@ -406,12 +453,92 @@ onMounted(() => {
   padding: 5px 7px;
   font-size: 10px;
   color: var(--color-fade);
+  transition:
+    border-color var(--motion-fast) ease,
+    color var(--motion-fast) ease,
+    background var(--motion-fast) ease,
+    opacity var(--motion-normal) ease,
+    transform var(--motion-normal) var(--ease-out-soft);
 }
-.track-segment:hover { border-color: var(--color-accent); color: var(--color-paper); }
+.track-segment:hover {
+  border-color: var(--color-accent);
+  color: var(--color-paper);
+  transform: translateY(-1px);
+}
 .track-segment small {
   font-family: var(--font-mono);
   font-size: 8px;
   color: var(--color-dim);
   text-transform: uppercase;
+}
+.track-segment-list {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.track-empty-state {
+  color: var(--color-dim);
+  font-size: 11.5px;
+}
+.track-segment-list-enter-active,
+.track-segment-list-leave-active,
+.track-segment-list-move {
+  transition:
+    opacity var(--motion-normal) ease,
+    transform var(--motion-normal) var(--ease-out-soft);
+}
+.track-segment-list-enter-from {
+  opacity: 0;
+  transform: translateY(5px) scale(0.92);
+}
+.track-segment-list-leave-active {
+  position: absolute;
+}
+.track-segment-list-leave-to {
+  opacity: 0;
+  transform: translateY(-3px) scale(0.88);
+}
+.composer-count-enter-active,
+.composer-count-leave-active {
+  transition: opacity var(--motion-fast) ease, transform var(--motion-fast) var(--ease-out-soft);
+}
+.composer-count-enter-from {
+  opacity: 0;
+  transform: translateY(3px);
+}
+.composer-count-leave-to {
+  opacity: 0;
+  transform: translateY(-3px);
+}
+.final-prompt-panel {
+  transition: border-color var(--motion-fast) ease, box-shadow var(--motion-normal) ease;
+}
+.final-prompt-panel.is-updating {
+  animation: prompt-preview-update 280ms var(--ease-out-soft);
+}
+.prompt-tool-view-enter-active {
+  transition: opacity 190ms ease, transform 190ms var(--ease-out-soft);
+}
+.prompt-tool-view-leave-active {
+  transition: opacity 110ms ease, transform 110ms ease;
+}
+.prompt-tool-view-enter-from {
+  opacity: 0;
+  transform: translateY(8px);
+}
+.prompt-tool-view-leave-to {
+  opacity: 0;
+  transform: translateY(-4px);
+}
+@keyframes prompt-preview-update {
+  0%, 100% {
+    border-color: var(--color-line);
+    box-shadow: none;
+  }
+  45% {
+    border-color: color-mix(in srgb, var(--color-accent) 62%, var(--color-line));
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 10%, transparent);
+  }
 }
 </style>
