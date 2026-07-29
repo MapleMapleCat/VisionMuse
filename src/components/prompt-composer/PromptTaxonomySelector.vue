@@ -19,6 +19,44 @@ interface PromptChoiceToggleRequest {
 
 const BRANCH_CONVERGENCE_DELAY_MILLISECONDS = 260
 const FOCUS_FALLBACK_DELAY_MILLISECONDS = 320
+const DOMAIN_ICON_PATHS: Readonly<Record<string, readonly string[]>> = {
+  'domain-subject': [
+    'M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z',
+    'M4.5 20c.7-4 3.2-6 7.5-6s6.8 2 7.5 6',
+  ],
+  'domain-performance': [
+    'M12 5.2a2.2 2.2 0 1 0 0-4.4 2.2 2.2 0 0 0 0 4.4Z',
+    'm8.2 10.5 3.6-3 3.9 2.5M11.8 7.5l.4 5.2-3.3 3.2L7.5 21M12.2 12.7l3.2 3 1.3 5.3',
+  ],
+  'domain-scene': [
+    'M3 19 8.2 12l3.4 4 2.7-3.2L21 19H3Z',
+    'M16.8 5.5a2.3 2.3 0 1 0 0 4.6 2.3 2.3 0 0 0 0-4.6Z',
+  ],
+  'domain-medium': [
+    'm12 3 8 4.5-8 4.5-8-4.5L12 3Z',
+    'm4 12 8 4.5 8-4.5M4 16.5l8 4.5 8-4.5',
+  ],
+  'domain-camera': [
+    'M4 7h3l1.4-2h7.2L17 7h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1Z',
+    'M12 16a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z',
+  ],
+  'domain-composition': [
+    'M8 3H4a1 1 0 0 0-1 1v4M16 3h4a1 1 0 0 1 1 1v4M8 21H4a1 1 0 0 1-1-1v-4M16 21h4a1 1 0 0 0 1-1v-4',
+    'M8 8h8v8H8z',
+  ],
+  'domain-lighting': [
+    'M12 16a5 5 0 1 0 0-10 5 5 0 0 0 0 10Z',
+    'M12 1v2M12 21v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M1 12h2M21 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4',
+  ],
+  'domain-color': [
+    'M12 3a9 9 0 1 0 0 18c1.5 0 2.2-.9 2.2-1.9 0-.8-.5-1.5-.5-2.3 0-1.2 1-2.1 2.2-2.1H18A3 3 0 0 0 21 12a9 9 0 0 0-9-9Z',
+    'M7.5 10h.01M10 6.7h.01M14.2 6.8h.01M16.8 10.2h.01',
+  ],
+  'domain-material': [
+    'm12 3 7 5-7 13L5 8l7-5Z',
+    'm5 8 7 3 7-3M12 11v10M9 4.8 12 11l3-6.2',
+  ],
+}
 
 const props = defineProps<{
   promptModules: PromptModule[]
@@ -63,6 +101,16 @@ const activeDomainHasExpandedBranch = computed(() => props.selectedChoiceIds.som
     visibleDomainGroupIds.value.has(childGroup.id)
   )) ?? false
 }))
+const taxonomySelectionCount = computed(() => props.selectedChoiceIds.filter(choiceId => (
+  PROMPT_TAXONOMY_INDEX.choicesById.has(choiceId)
+)).length)
+const selectedDomainCount = computed(() => PROMPT_TAXONOMY_DOMAINS.filter(domain => (
+  getDomainSelectionCount(domain.id) > 0
+)).length)
+
+function getDomainIconPaths(domainId: string): readonly string[] {
+  return DOMAIN_ICON_PATHS[domainId] ?? DOMAIN_ICON_PATHS['domain-composition'] ?? []
+}
 
 function isChoicePathExpanded(indexedChoice: IndexedPromptTaxonomyChoice): boolean {
   const ancestorGroupIds = indexedChoice.ancestorChoiceIds
@@ -256,13 +304,33 @@ function clearActiveDomain() {
   emit('clearDomain', activeDomain.value.id)
 }
 
-function selectDomain(domainId: string, clickEvent: MouseEvent) {
+function activateDomain(domainId: string) {
   if (domainId === activeDomainId.value) return
   cancelAllAutomaticCollapses()
   activeDomainId.value = domainId
   clearPendingKeyboardFocus()
+}
+
+function selectDomain(domainId: string, clickEvent: MouseEvent) {
+  activateDomain(domainId)
   const domainButton = clickEvent.currentTarget as HTMLButtonElement | null
   domainButton?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+}
+
+function focusDomainAtIndex(requestedDomainIndex: number) {
+  const domainCount = PROMPT_TAXONOMY_DOMAINS.length
+  if (!domainCount) return
+
+  const normalizedDomainIndex = (requestedDomainIndex + domainCount) % domainCount
+  const targetDomain = PROMPT_TAXONOMY_DOMAINS[normalizedDomainIndex]
+  if (!targetDomain) return
+
+  activateDomain(targetDomain.id)
+  const targetButton = selectorRoot.value?.querySelector<HTMLButtonElement>(
+    `[data-taxonomy-domain-index="${normalizedDomainIndex}"]`,
+  )
+  targetButton?.focus({ preventScroll: true })
+  targetButton?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
 }
 
 function handleRootGroupAfterEnter(enteredElement: Element) {
@@ -305,28 +373,104 @@ onBeforeUnmount(() => {
 
     <div class="taxonomy-layout mt-4">
       <nav class="taxonomy-domain-rail" aria-label="提示词分类领域">
-        <button
-          v-for="(domain, domainIndex) in PROMPT_TAXONOMY_DOMAINS"
-          :key="domain.id"
-          class="taxonomy-domain-button"
-          :class="{ 'is-active': activeDomain?.id === domain.id }"
-          :aria-pressed="activeDomain?.id === domain.id"
-          @click="selectDomain(domain.id, $event)"
-        >
-          <span class="taxonomy-domain-index">
-            {{ String(domainIndex + 1).padStart(2, '0') }}
+        <header class="taxonomy-rail-heading">
+          <span class="taxonomy-rail-mark" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+              <path d="M6 4v16M6 8h6a3 3 0 0 1 3 3v1M6 16h6a3 3 0 0 0 3-3v-1M15 9l3 3-3 3" />
+            </svg>
           </span>
-          <span class="taxonomy-domain-label">{{ domain.label }}</span>
-          <Transition name="taxonomy-domain-count" mode="out-in">
+          <span class="taxonomy-rail-heading-copy">
+            <small>Path navigator</small>
+            <strong>选择领域</strong>
+          </span>
+          <span class="taxonomy-rail-total">{{ PROMPT_TAXONOMY_DOMAINS.length }}</span>
+        </header>
+
+        <div class="taxonomy-rail-progress">
+          <div class="taxonomy-rail-progress-copy">
+            <span>已选择 {{ taxonomySelectionCount }} 项</span>
+            <strong>{{ selectedDomainCount }} / {{ PROMPT_TAXONOMY_DOMAINS.length }} 领域</strong>
+          </div>
+          <div class="taxonomy-rail-progress-track" aria-hidden="true">
             <span
-              v-if="getDomainSelectionCount(domain.id)"
-              :key="getDomainSelectionCount(domain.id)"
-              class="taxonomy-domain-count"
-            >
-              {{ getDomainSelectionCount(domain.id) }}
+              v-for="domain in PROMPT_TAXONOMY_DOMAINS"
+              :key="domain.id"
+              :class="{
+                'is-active': activeDomain?.id === domain.id,
+                'has-selection': getDomainSelectionCount(domain.id) > 0,
+              }"
+            />
+          </div>
+        </div>
+
+        <div class="taxonomy-domain-list">
+          <button
+            v-for="(domain, domainIndex) in PROMPT_TAXONOMY_DOMAINS"
+            :key="domain.id"
+            :data-taxonomy-domain-index="domainIndex"
+            class="taxonomy-domain-button"
+            :class="{
+              'is-active': activeDomain?.id === domain.id,
+              'has-selection': getDomainSelectionCount(domain.id) > 0,
+            }"
+            :aria-pressed="activeDomain?.id === domain.id"
+            :aria-current="activeDomain?.id === domain.id ? 'step' : undefined"
+            :aria-label="`${domain.label}，${domain.groups.length} 个选择组，已选择 ${getDomainSelectionCount(domain.id)} 项`"
+            @click="selectDomain(domain.id, $event)"
+            @keydown.up.prevent="focusDomainAtIndex(domainIndex - 1)"
+            @keydown.left.prevent="focusDomainAtIndex(domainIndex - 1)"
+            @keydown.down.prevent="focusDomainAtIndex(domainIndex + 1)"
+            @keydown.right.prevent="focusDomainAtIndex(domainIndex + 1)"
+            @keydown.home.prevent="focusDomainAtIndex(0)"
+            @keydown.end.prevent="focusDomainAtIndex(PROMPT_TAXONOMY_DOMAINS.length - 1)"
+          >
+            <span class="taxonomy-domain-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.55" stroke-linecap="round" stroke-linejoin="round">
+                <path
+                  v-for="iconPath in getDomainIconPaths(domain.id)"
+                  :key="iconPath"
+                  :d="iconPath"
+                />
+              </svg>
             </span>
-          </Transition>
-        </button>
+            <span class="taxonomy-domain-copy">
+              <span class="taxonomy-domain-title-row">
+                <span class="taxonomy-domain-index">
+                  {{ String(domainIndex + 1).padStart(2, '0') }}
+                </span>
+                <strong class="taxonomy-domain-label">{{ domain.label }}</strong>
+              </span>
+              <small>{{ domain.groups.length }} 个选择组</small>
+            </span>
+            <Transition name="taxonomy-domain-count" mode="out-in">
+              <span
+                v-if="getDomainSelectionCount(domain.id)"
+                :key="getDomainSelectionCount(domain.id)"
+                class="taxonomy-domain-count"
+              >
+                {{ getDomainSelectionCount(domain.id) }}
+              </span>
+            </Transition>
+            <svg class="taxonomy-domain-chevron" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+              <path d="m6 3.5 4.5 4.5L6 12.5" />
+            </svg>
+          </button>
+        </div>
+
+        <footer class="taxonomy-rail-foot">
+          <span class="taxonomy-rail-foot-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M5 5h5M5 12h9M5 19h14" />
+              <circle cx="12" cy="5" r="2" />
+              <circle cx="16" cy="12" r="2" />
+              <circle cx="21" cy="19" r="2" />
+            </svg>
+          </span>
+          <span>
+            <strong>跨领域组合</strong>
+            <small>选择会实时写入右侧面板</small>
+          </span>
+        </footer>
       </nav>
 
       <main class="min-w-0">
@@ -413,35 +557,55 @@ onBeforeUnmount(() => {
 }
 
 .taxonomy-domain-rail {
+  overflow: hidden;
+  border: 1px solid var(--color-line);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--color-ink) 38%, var(--color-well));
+  padding: 6px;
+}
+
+.taxonomy-rail-heading,
+.taxonomy-rail-progress,
+.taxonomy-rail-foot {
+  display: none;
+}
+
+.taxonomy-domain-list {
   display: flex;
   gap: 6px;
   overflow-x: auto;
-  padding: 2px 2px 7px;
   scroll-snap-type: x proximity;
   scrollbar-width: none;
 }
 
-.taxonomy-domain-rail::-webkit-scrollbar {
-  display: none;
+.taxonomy-domain-list::-webkit-scrollbar { display: none; }
+
+.taxonomy-rail-mark,
+.taxonomy-domain-icon,
+.taxonomy-rail-foot-icon {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
 }
 
 .taxonomy-domain-button {
   position: relative;
-  display: flex;
-  min-width: 132px;
-  min-height: 38px;
+  display: grid;
+  min-width: 148px;
+  min-height: 44px;
   flex: 0 0 auto;
+  grid-template-columns: 30px minmax(0, 1fr) auto;
   align-items: center;
-  gap: 8px;
+  gap: 7px;
   overflow: hidden;
-  border: 1px solid var(--color-line);
-  border-radius: 9px;
-  background: color-mix(in srgb, var(--color-ink) 42%, var(--color-well));
-  padding: 7px 9px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  padding: 6px 8px;
   color: var(--color-fade);
-  font-size: 10.75px;
-  font-weight: 600;
   scroll-snap-align: start;
+  text-align: left;
   transition:
     border-color var(--motion-fast) ease,
     background var(--motion-fast) ease,
@@ -452,47 +616,96 @@ onBeforeUnmount(() => {
 
 .taxonomy-domain-button::before {
   position: absolute;
-  inset: 0 auto 0 0;
-  width: 3px;
+  inset: auto 10px 0;
+  height: 2px;
   background: var(--color-accent);
   content: '';
   opacity: 0;
-  transform: scaleY(0.35);
+  transform: scaleX(0.35);
   transition:
     opacity var(--motion-fast) ease,
     transform var(--motion-normal) var(--ease-out-soft);
 }
 
 .taxonomy-domain-button:hover {
-  border-color: var(--color-line2);
+  background: color-mix(in srgb, var(--color-panel2) 58%, transparent);
   color: var(--color-paper);
   transform: translateY(-1px);
 }
 
 .taxonomy-domain-button.is-active {
-  border-color: color-mix(in srgb, var(--color-accent) 70%, var(--color-line));
-  background: var(--color-accentsoft);
+  border-color: color-mix(in srgb, var(--color-accent) 22%, var(--color-line));
+  background: color-mix(in srgb, var(--color-accentsoft) 82%, var(--color-well));
   color: var(--color-accenthi);
-  box-shadow: 0 4px 12px rgb(31 110 98 / 0.08);
+  box-shadow: 0 3px 10px rgb(31 110 98 / 0.07);
 }
 
 .taxonomy-domain-button.is-active::before {
   opacity: 1;
-  transform: scaleY(1);
+  transform: scaleX(1);
+}
+
+.taxonomy-domain-icon {
+  height: 30px;
+  width: 30px;
+  border: 1px solid var(--color-line);
+  border-radius: 9px;
+  background: var(--color-well);
+  color: var(--color-dim);
+  transition:
+    border-color var(--motion-fast) ease,
+    color var(--motion-fast) ease,
+    transform var(--motion-normal) var(--ease-spring);
+}
+
+.taxonomy-domain-icon svg { height: 16px; width: 16px; }
+
+.taxonomy-domain-button:hover .taxonomy-domain-icon {
+  color: var(--color-paper);
+  transform: scale(1.04);
+}
+
+.taxonomy-domain-button.is-active .taxonomy-domain-icon {
+  border-color: color-mix(in srgb, var(--color-accent) 28%, var(--color-line));
+  background: var(--color-well);
+  color: var(--color-accent);
+}
+
+.taxonomy-domain-copy {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.taxonomy-domain-title-row {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 5px;
 }
 
 .taxonomy-domain-index {
   flex: none;
   color: var(--color-dim);
   font-family: var(--font-mono);
-  font-size: 8.5px;
+  font-size: 7.5px;
 }
 
 .taxonomy-domain-label {
   min-width: 0;
-  flex: 1;
   overflow: hidden;
-  text-align: left;
+  font-size: 10.75px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.taxonomy-domain-copy small {
+  display: none;
+  overflow: hidden;
+  color: var(--color-dim);
+  font-size: 8.5px;
+  font-weight: 400;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -510,6 +723,8 @@ onBeforeUnmount(() => {
 .taxonomy-domain-count {
   flex: none;
 }
+
+.taxonomy-domain-chevron { display: none; }
 
 .taxonomy-domain-count-enter-active,
 .taxonomy-domain-count-leave-active {
@@ -639,8 +854,9 @@ onBeforeUnmount(() => {
 
 @media (min-width: 880px) {
   .taxonomy-layout {
-    grid-template-columns: 166px minmax(0, 1fr);
+    grid-template-columns: 212px minmax(0, 1fr);
     align-items: start;
+    gap: 18px;
   }
 
   .taxonomy-domain-rail {
@@ -648,19 +864,200 @@ onBeforeUnmount(() => {
     top: 12px;
     display: flex;
     flex-direction: column;
-    overflow: visible;
-    padding: 0 12px 0 0;
-    border-right: 1px solid var(--color-line);
+    max-height: calc(100svh - 190px);
+    overflow: hidden;
+    border-color: color-mix(in srgb, var(--color-line2) 82%, transparent);
+    border-radius: 16px;
+    background:
+      linear-gradient(160deg, color-mix(in srgb, var(--color-accentsoft) 38%, transparent), transparent 35%),
+      color-mix(in srgb, var(--color-ink) 46%, var(--color-well));
+    padding: 10px;
+    box-shadow: 0 8px 24px rgb(38 35 28 / 0.055);
+  }
+
+  .taxonomy-rail-heading {
+    display: grid;
+    grid-template-columns: 34px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 8px;
+    padding: 3px 3px 10px;
+  }
+
+  .taxonomy-rail-mark {
+    height: 34px;
+    width: 34px;
+    border-radius: 10px;
+    background: var(--color-paper);
+    color: var(--color-well);
+    box-shadow: 0 5px 13px rgb(38 35 28 / 0.15);
+  }
+
+  .taxonomy-rail-mark svg { height: 18px; width: 18px; }
+
+  .taxonomy-rail-heading-copy {
+    display: grid;
+    min-width: 0;
+    gap: 1px;
+  }
+
+  .taxonomy-rail-heading-copy small {
+    overflow: hidden;
+    font-family: var(--font-mono);
+    font-size: 7.5px;
+    letter-spacing: 0.09em;
+    color: var(--color-dim);
+    text-overflow: ellipsis;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+
+  .taxonomy-rail-heading-copy strong {
+    font-size: 11.5px;
+    font-weight: 650;
+  }
+
+  .taxonomy-rail-total {
+    display: flex;
+    height: 22px;
+    min-width: 22px;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--color-line);
+    border-radius: 999px;
+    background: var(--color-well);
+    font-family: var(--font-mono);
+    font-size: 8px;
+    color: var(--color-dim);
+  }
+
+  .taxonomy-rail-progress {
+    display: grid;
+    gap: 7px;
+    border-block: 1px solid var(--color-line);
+    padding: 9px 3px;
+  }
+
+  .taxonomy-rail-progress-copy {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    font-size: 8.5px;
+    color: var(--color-dim);
+  }
+
+  .taxonomy-rail-progress-copy strong {
+    font-family: var(--font-mono);
+    font-size: 8px;
+    font-weight: 500;
+    color: var(--color-accenthi);
+  }
+
+  .taxonomy-rail-progress-track {
+    display: grid;
+    grid-template-columns: repeat(9, 1fr);
+    gap: 3px;
+  }
+
+  .taxonomy-rail-progress-track span {
+    height: 3px;
+    border-radius: 999px;
+    background: var(--color-line2);
+    transition: background var(--motion-fast) ease, transform var(--motion-normal) var(--ease-spring);
+  }
+
+  .taxonomy-rail-progress-track span.has-selection { background: var(--color-accent); }
+  .taxonomy-rail-progress-track span.is-active { transform: scaleY(1.8); }
+
+  .taxonomy-domain-list {
+    min-height: 0;
+    flex-direction: column;
+    gap: 3px;
+    overflow-x: hidden;
+    overflow-y: auto;
+    margin: 5px -3px 0;
+    padding: 0 3px 4px;
+    scroll-snap-type: none;
+    scrollbar-width: thin;
   }
 
   .taxonomy-domain-button {
     width: 100%;
     min-width: 0;
+    min-height: 48px;
+    grid-template-columns: 32px minmax(0, 1fr) auto 12px;
+    gap: 8px;
+    padding: 6px 7px;
+    scroll-snap-align: none;
+  }
+
+  .taxonomy-domain-button::before {
+    inset: 10px auto 10px -4px;
+    height: auto;
+    width: 3px;
+    border-radius: 0 999px 999px 0;
+    transform: scaleY(0.35);
+  }
+
+  .taxonomy-domain-button.is-active::before {
+    transform: scaleY(1);
   }
 
   .taxonomy-domain-button:hover {
     transform: translateX(2px);
   }
+
+  .taxonomy-domain-icon { height: 32px; width: 32px; }
+  .taxonomy-domain-copy small { display: block; }
+
+  .taxonomy-domain-chevron {
+    display: block;
+    height: 12px;
+    width: 12px;
+    color: var(--color-line2);
+    opacity: 0;
+    transform: translateX(-3px);
+    transition: opacity var(--motion-fast) ease, transform var(--motion-fast) var(--ease-out-soft);
+  }
+
+  .taxonomy-domain-button.is-active .taxonomy-domain-chevron {
+    color: var(--color-accent);
+    opacity: 1;
+    transform: none;
+  }
+
+  .taxonomy-domain-button.has-selection:not(.is-active) .taxonomy-domain-icon {
+    border-color: color-mix(in srgb, var(--color-accent) 18%, var(--color-line));
+    color: var(--color-accenthi);
+  }
+
+  .taxonomy-rail-foot {
+    display: grid;
+    grid-template-columns: 30px minmax(0, 1fr);
+    align-items: center;
+    gap: 8px;
+    border-top: 1px solid var(--color-line);
+    padding: 9px 3px 1px;
+  }
+
+  .taxonomy-rail-foot-icon {
+    height: 30px;
+    width: 30px;
+    border-radius: 9px;
+    background: var(--color-panel2);
+    color: var(--color-fade);
+  }
+
+  .taxonomy-rail-foot-icon svg { height: 16px; width: 16px; }
+
+  .taxonomy-rail-foot > span:last-child {
+    display: grid;
+    min-width: 0;
+    gap: 1px;
+  }
+
+  .taxonomy-rail-foot strong { font-size: 9.5px; font-weight: 600; }
+  .taxonomy-rail-foot small { overflow: hidden; color: var(--color-dim); font-size: 7.5px; text-overflow: ellipsis; white-space: nowrap; }
 }
 
 @media (max-width: 520px) {
