@@ -1,6 +1,10 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import {
+  PROMPT_TEMPLATE_CATEGORY_BY_ID,
+  PROMPT_TEMPLATE_MEDIUM_BY_ID,
+} from '@/assets/prompt-templates'
 import { useGalleryStore } from '@/stores/gallery'
 import { useTaskStore } from '@/stores/tasks'
 import { useUiStore } from '@/stores/ui'
@@ -150,8 +154,7 @@ function openDock() {
 }
 
 function pickTemplate(template: PromptTemplate) {
-  const hasVariables = /\{\{[^}]+\}\}/.test(template.content)
-  if (hasVariables) {
+  if (template.variables.length) {
     showTemplates.value = false
     void router.push({ path: '/prompts', query: { template: template.id } })
     return
@@ -161,6 +164,18 @@ function pickTemplate(template: PromptTemplate) {
   ui.draftPrompt = template.content
   showTemplates.value = false
   nextTick(() => promptEl.value?.focus())
+}
+
+function getTemplateContextLabel(template: PromptTemplate): string {
+  const categoryLabel = template.categoryId
+    ? PROMPT_TEMPLATE_CATEGORY_BY_ID.get(template.categoryId)?.label
+    : undefined
+  const mediumLabel = template.medium
+    ? PROMPT_TEMPLATE_MEDIUM_BY_ID.get(template.medium)?.label
+    : undefined
+  return [categoryLabel ?? (template.origin === 'user' ? '我的' : '未分类'), mediumLabel]
+    .filter(Boolean)
+    .join(' · ')
 }
 
 function openPromptModules() {
@@ -492,7 +507,7 @@ watch(
             <p class="menu-title !pt-3">完整提示词</p>
             <button v-for="template in templateStore.templates" :key="template.id" @click="pickTemplate(template)">
               <span>{{ template.title }}</span>
-              <small>{{ template.category }}</small>
+              <small>{{ getTemplateContextLabel(template) }}</small>
               <p>{{ template.content }}</p>
             </button>
           </div>

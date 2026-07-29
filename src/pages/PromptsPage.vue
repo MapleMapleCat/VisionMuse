@@ -1,8 +1,17 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import {
+  PROMPT_TEMPLATE_CATEGORIES,
+  PROMPT_TEMPLATE_CATEGORY_BY_ID,
+  PROMPT_TEMPLATE_MEDIA,
+  PROMPT_TEMPLATE_MEDIUM_BY_ID,
+  PROMPT_TEMPLATE_STYLE_BY_ID,
+} from '@/assets/prompt-templates'
 import { PROMPT_TAXONOMY_CHOICE_COUNT } from '@/assets/prompt-taxonomy'
 import PromptTaxonomySelector from '@/components/prompt-composer/PromptTaxonomySelector.vue'
+import PromptTemplateCard from '@/components/prompt-templates/PromptTemplateCard.vue'
+import PromptTemplateFillDialog from '@/components/prompt-templates/PromptTemplateFillDialog.vue'
 import {
   composePrompt,
   createPromptCompositionInput,
@@ -18,7 +27,11 @@ import {
 import { usePromptModuleStore } from '@/stores/promptModules'
 import { useTemplateStore } from '@/stores/templates'
 import { useUiStore } from '@/stores/ui'
-import type { PromptTemplate } from '@/types'
+import type {
+  PromptTemplate,
+  PromptTemplateCategoryId,
+  PromptTemplateMedium,
+} from '@/types'
 
 const ui = useUiStore()
 const templateStore = useTemplateStore()
@@ -136,68 +149,86 @@ async function useComposedPrompt() {
   ui.showToast('模块化提示词已带入直接创作')
 }
 
-const templateFilter = ref('全部')
-const templateCategories = computed(() => [
-  '全部',
-  ...new Set(templateStore.templates.map(template => template.category)),
-])
-const shownTemplates = computed(() => templateFilter.value === '全部'
-  ? templateStore.templates
-  : templateStore.templates.filter(template => template.category === templateFilter.value))
+type TemplateScopeFilter = 'all' | 'user' | PromptTemplateCategoryId
+type TemplateSortMode = 'recommended' | 'most-used'
 
-function splitTemplateContent(content: string) {
-  return content.split(/(\{\{[^}]+\}\})/g).map(segment => ({
-    text: segment,
-    isVariable: /^\{\{[^}]+\}\}$/.test(segment),
-  }))
-}
+const templateSearch = ref('')
+const templateScopeFilter = ref<TemplateScopeFilter>('all')
+const templateMediumFilter = ref<'all' | PromptTemplateMedium>('all')
+const templateSortMode = ref<TemplateSortMode>('recommended')
 
 const fillTarget = ref<PromptTemplate | null>(null)
-const fillValues = ref<Record<string, string>>({})
-const fillVariables = computed(() => Object.keys(fillValues.value))
-const templateReady = computed(() => fillVariables.value.every(variable => fillValues.value[variable]?.trim()))
 
-function getTemplateVariables(template: PromptTemplate): string[] {
-  return [...new Set(
-    [...template.content.matchAll(/\{\{([^}]+)\}\}/g)].map(match => match[1]),
-  )]
-}
+const shownTemplates = computed(() => {
+  const normalizedSearch = templateSearch.value.trim().toLocaleLowerCase()
+  const filteredTemplates = templateStore.templates.filter((template) => {
+    const matchesScope = templateScopeFilter.value === 'all'
+      || (templateScopeFilter.value === 'user' && template.origin === 'user')
+      || template.categoryId === templateScopeFilter.value
+    const matchesMedium = templateMediumFilter.value === 'all'
+      || template.medium === templateMediumFilter.value
+    if (!matchesScope || !matchesMedium) return false
+    if (!normalizedSearch) return true
+
+    const categoryLabel = template.categoryId
+      ? PROMPT_TEMPLATE_CATEGORY_BY_ID.get(template.categoryId)?.label ?? ''
+      : '未分类'
+    const mediumLabel = template.medium
+      ? PROMPT_TEMPLATE_MEDIUM_BY_ID.get(template.medium)?.label ?? ''
+      : '媒介未指定'
+    const styleLabels = template.styleIds.map(styleId => (
+      PROMPT_TEMPLATE_STYLE_BY_ID.get(styleId)?.label ?? ''
+    ))
+    return [
+      template.title,
+      template.summary,
+      template.content,
+      categoryLabel,
+      mediumLabel,
+      ...styleLabels,
+    ].some(searchableText => searchableText.toLocaleLowerCase().includes(normalizedSearch))
+  })
+
+  if (templateSortMode.value === 'recommended') return filteredTemplates
+  return [...filteredTemplates].sort((firstTemplate, secondTemplate) => (
+    secondTemplate.useCount - firstTemplate.useCount
+  ))
+})
 
 function useTemplate(template: PromptTemplate) {
-  const variables = getTemplateVariables(template)
-  if (variables.length) {
+  if (template.variables.length) {
     fillTarget.value = template
-    fillValues.value = Object.fromEntries(variables.map(variable => [variable, '']))
     return
   }
-
-  ui.useTemplate(template)
-  void router.push('/gallery')
-  ui.showToast('完整提示词已带入直接创作')
+  void useFinalTemplatePrompt(template, template.content)
 }
 
 async function copyTemplate(template: PromptTemplate) {
-  await navigator.clipboard.writeText(template.content)
-  ui.showToast('完整提示词已复制')
-}
-
-function confirmFill() {
-  if (!fillTarget.value || !templateReady.value) {
-    ui.showToast('请填写全部模板变量')
+  if (template.variables.length) {
+    fillTarget.value = template
     return
   }
+  await copyFinalTemplatePrompt(template.content)
+}
 
-  let filledContent = fillTarget.value.content
-  for (const [variable, value] of Object.entries(fillValues.value)) {
-    filledContent = filledContent.replaceAll(`{{${variable}}}`, value.trim())
-  }
+async function copyFinalTemplatePrompt(content: string) {
+  await navigator.clipboard.writeText(content)
+  ui.showToast('完整提示词已复制')
+  fillTarget.value = null
+}
 
-  void templateStore.recordUse(fillTarget.value)
-  ui.draftPrompt = filledContent
+async function useFinalTemplatePrompt(template: PromptTemplate, content: string) {
+  await templateStore.recordUse(template)
+  ui.draftPrompt = content
   ui.dockOpen = true
   fillTarget.value = null
-  void router.push('/gallery')
+  await router.push('/gallery')
   ui.showToast('完整提示词已带入直接创作')
+}
+
+function useFilledTemplatePrompt(content: string) {
+  if (!fillTarget.value) return
+  void useFinalTemplatePrompt(fillTarget.value, content)
 }
 
 onMounted(() => {
@@ -222,11 +253,18 @@ onBeforeUnmount(() => {
 <template>
   <div class="flex h-full flex-col">
     <header class="border-b border-line bg-ink/90 px-6 pb-4 pt-5 backdrop-blur">
-      <p class="field-label">Atomic prompt modules</p>
+      <p class="field-label">{{ activeView === 'modules' ? 'Atomic prompt modules' : 'Complete prompt library' }}</p>
       <div class="mt-1.5 flex flex-wrap items-end gap-3">
-        <h1 class="display text-[27px] leading-none">提示词模块</h1>
+        <h1 class="display text-[27px] leading-none">
+          {{ activeView === 'modules' ? '提示词模块' : '完整提示词' }}
+        </h1>
         <span class="pb-0.5 font-mono text-[10.5px] text-dim">
-          {{ PROMPT_TAXONOMY_CHOICE_COUNT }} 个分级选项 · 条件展开 · 不自动搭配
+          <template v-if="activeView === 'modules'">
+            {{ PROMPT_TAXONOMY_CHOICE_COUNT }} 个分级选项 · 条件展开 · 不自动搭配
+          </template>
+          <template v-else>
+            {{ templateStore.templates.length }} 条模板 · 8 个创作方向 · 4 种表现媒介
+          </template>
         </span>
       </div>
       <div class="seg mt-4 w-full max-w-[340px]" aria-label="提示词工具">
@@ -357,76 +395,104 @@ onBeforeUnmount(() => {
 
       <div v-else key="templates" class="mx-auto max-w-[1180px]">
         <section class="mb-4 rounded-2xl border border-line bg-well p-4 shadow-card">
-          <p class="text-[12.5px] font-semibold">完整提示词独立保留</p>
-          <p class="mt-1 text-[11px] leading-relaxed text-dim">它们不会参与模块推荐。含变量的提示词必须填写完整后才能进入创作。</p>
+          <div class="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
+            <div>
+              <p class="field-label">Prompt library</p>
+              <h2 class="mt-1 text-[14px] font-semibold">按创作目的查找完整提示词</h2>
+              <p class="mt-1 text-[11px] leading-relaxed text-dim">
+                一级分类说明创作目的，媒介说明画面形成方式，风格标签用于补充视觉气质。
+              </p>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+              <input
+                v-model="templateSearch"
+                type="search"
+                class="input min-w-[220px]"
+                placeholder="搜索标题、用途或风格"
+                aria-label="搜索完整提示词"
+              />
+              <select v-model="templateSortMode" class="input !w-auto" aria-label="完整提示词排序">
+                <option value="recommended">推荐顺序</option>
+                <option value="most-used">最常使用</option>
+              </select>
+            </div>
+          </div>
         </section>
 
-        <div class="mb-4 flex flex-wrap gap-1.5">
-          <button
-            v-for="category in templateCategories"
-            :key="category"
-            class="chip"
-            :class="{ on: templateFilter === category }"
-            :aria-pressed="templateFilter === category"
-            @click="templateFilter = category"
-          >{{ category }}</button>
-        </div>
+        <section class="mb-4 space-y-3 rounded-2xl border border-line bg-ink/35 p-3.5">
+          <div class="flex flex-wrap items-center gap-1.5">
+            <span class="mr-1 font-mono text-[9px] uppercase tracking-[0.12em] text-dim">创作方向</span>
+            <button
+              class="chip"
+              :class="{ on: templateScopeFilter === 'all' }"
+              :aria-pressed="templateScopeFilter === 'all'"
+              @click="templateScopeFilter = 'all'"
+            >全部</button>
+            <button
+              v-for="category in PROMPT_TEMPLATE_CATEGORIES"
+              :key="category.id"
+              class="chip"
+              :class="{ on: templateScopeFilter === category.id }"
+              :aria-pressed="templateScopeFilter === category.id"
+              :title="category.description"
+              @click="templateScopeFilter = category.id"
+            >{{ category.label }}</button>
+            <button
+              class="chip"
+              :class="{ on: templateScopeFilter === 'user' }"
+              :aria-pressed="templateScopeFilter === 'user'"
+              @click="templateScopeFilter = 'user'"
+            >我的</button>
+          </div>
+
+          <div class="flex flex-wrap items-center gap-1.5">
+            <span class="mr-1 font-mono text-[9px] uppercase tracking-[0.12em] text-dim">表现媒介</span>
+            <button
+              class="chip"
+              :class="{ on: templateMediumFilter === 'all' }"
+              :aria-pressed="templateMediumFilter === 'all'"
+              @click="templateMediumFilter = 'all'"
+            >全部媒介</button>
+            <button
+              v-for="medium in PROMPT_TEMPLATE_MEDIA"
+              :key="medium.id"
+              class="chip"
+              :class="{ on: templateMediumFilter === medium.id }"
+              :aria-pressed="templateMediumFilter === medium.id"
+              :title="medium.description"
+              @click="templateMediumFilter = medium.id"
+            >{{ medium.label }}</button>
+          </div>
+        </section>
 
         <div class="grid grid-cols-1 gap-3.5 md:grid-cols-2 xl:grid-cols-3">
-          <article
+          <PromptTemplateCard
             v-for="(template, templateIndex) in shownTemplates"
             :key="template.id"
-            class="rise-in group flex flex-col rounded-2xl border border-line bg-well p-4 shadow-card transition-all duration-300 hover:-translate-y-1 hover:border-line2 hover:shadow-lift"
-            :style="{ '--stagger': templateIndex }"
-          >
-            <div class="mb-2 flex items-center gap-2">
-              <h2 class="text-[13.5px] font-semibold">{{ template.title }}</h2>
-              <span class="rounded-full border border-line2 px-2 py-px text-[10px] text-dim">{{ template.category }}</span>
-              <span class="ml-auto font-mono text-[10px] text-dim">用过 {{ template.useCount }} 次</span>
-            </div>
-            <p class="mb-3.5 flex-1 text-[12.5px] leading-relaxed text-fade">
-              <template v-for="(segment, segmentIndex) in splitTemplateContent(template.content)" :key="segmentIndex">
-                <mark v-if="segment.isVariable" class="rounded-md bg-amber/10 px-1 py-px font-mono text-[11.5px] text-amberhi">{{ segment.text }}</mark>
-                <template v-else>{{ segment.text }}</template>
-              </template>
-            </p>
-            <div class="flex gap-2">
-              <button class="btn btn-primary !py-1.5 text-[12px]" @click="useTemplate(template)">填写并使用</button>
-              <button
-                class="btn btn-ghost !py-1.5 text-[12px] opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 focus:opacity-100"
-                @click="copyTemplate(template)"
-              >复制</button>
-            </div>
-          </article>
+            :template="template"
+            :stagger-index="templateIndex"
+            @use="useTemplate"
+            @copy="copyTemplate"
+          />
         </div>
+
+        <section
+          v-if="!shownTemplates.length"
+          class="rounded-2xl border border-dashed border-line2 bg-well/45 px-5 py-12 text-center"
+        >
+          <p class="text-[13px] font-semibold">没有符合当前条件的完整提示词</p>
+          <p class="mt-1 text-[11px] text-dim">尝试清空搜索词，或切换创作方向和表现媒介。</p>
+        </section>
       </div>
       </Transition>
     </div>
 
-    <Teleport to="body">
-      <div v-if="fillTarget" class="fixed inset-0 z-50 flex items-center justify-center">
-        <div class="fade-in absolute inset-0 bg-paper/25 backdrop-blur-[3px]" @click="fillTarget = null" />
-        <div class="pop-in relative w-[440px] max-w-[90vw] rounded-2xl border border-line bg-well p-5 shadow-pop">
-          <h3 class="mb-1 text-[14px] font-semibold">{{ fillTarget.title }}</h3>
-          <p class="mb-4 text-[12px] leading-relaxed text-dim">填写全部变量后才能进入创作，未替换的占位符不会被提交。</p>
-          <div class="space-y-3">
-            <label v-for="variable in fillVariables" :key="variable" class="block">
-              <span class="field-label mb-1 block">{{ variable }}</span>
-              <input
-                v-model="fillValues[variable]"
-                class="input"
-                :placeholder="`填写${variable}`"
-                @keydown.enter="confirmFill"
-              />
-            </label>
-          </div>
-          <div class="mt-5 flex justify-end gap-2">
-            <button class="btn" @click="fillTarget = null">取消</button>
-            <button class="btn btn-primary" :disabled="!templateReady" @click="confirmFill">带入直接创作</button>
-          </div>
-        </div>
-      </div>
-    </Teleport>
+    <PromptTemplateFillDialog
+      :template="fillTarget"
+      @close="fillTarget = null"
+      @copy="copyFinalTemplatePrompt"
+      @use="useFilledTemplatePrompt"
+    />
   </div>
 </template>
 

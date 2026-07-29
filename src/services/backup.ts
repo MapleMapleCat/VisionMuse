@@ -12,6 +12,7 @@ import { PROMPT_MODULE_CATEGORY_KEYS } from '@/types'
 import { DEFAULT_PROMPT_MODULES } from '@/assets/prompt-modules'
 import { downloadBlob } from './download'
 import { cloneForStorage } from './clone'
+import { normalizePromptTemplates } from './promptTemplates'
 
 interface BackupTask extends Omit<StoredGenerationTask, 'referenceImage'> {
   referenceImage?: Omit<NonNullable<StoredGenerationTask['referenceImage']>, 'blob'> & { blobPath: string }
@@ -28,7 +29,7 @@ interface BackupManifestBase {
   settings: AppSettings
   tasks: BackupTask[]
   images: BackupImage[]
-  templates: PromptTemplate[]
+  templates: unknown[]
 }
 
 interface BackupManifestV1 extends BackupManifestBase {
@@ -167,9 +168,25 @@ function validateBackupManifest(value: unknown): asserts value is BackupManifest
   }
 
   for (const template of value.templates) {
-    if (!isRecord(template) || typeof template.id !== 'string' || typeof template.title !== 'string'
-      || typeof template.content !== 'string' || typeof template.category !== 'string'
-      || typeof template.useCount !== 'number') {
+    const isLegacyTemplate = isRecord(template)
+      && typeof template.id === 'string'
+      && typeof template.title === 'string'
+      && typeof template.content === 'string'
+      && typeof template.category === 'string'
+      && typeof template.useCount === 'number'
+    const isCurrentTemplate = isRecord(template)
+      && typeof template.id === 'string'
+      && typeof template.title === 'string'
+      && typeof template.summary === 'string'
+      && typeof template.content === 'string'
+      && (typeof template.categoryId === 'string' || template.categoryId === null)
+      && (typeof template.medium === 'string' || template.medium === null)
+      && Array.isArray(template.styleIds)
+      && Array.isArray(template.variables)
+      && ['builtin', 'user'].includes(String(template.origin))
+      && typeof template.useCount === 'number'
+      && typeof template.schemaVersion === 'number'
+    if (!isLegacyTemplate && !isCurrentTemplate) {
       throw new Error('备份中包含无效提示词模板')
     }
   }
@@ -229,7 +246,7 @@ export async function importBackup(file: File): Promise<{
     settings: manifest.settings,
     tasks,
     images,
-    templates: manifest.templates,
+    templates: normalizePromptTemplates(manifest.templates),
     promptModules: manifest.version === 2
       ? manifest.promptModules
       : cloneForStorage(DEFAULT_PROMPT_MODULES),

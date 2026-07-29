@@ -125,12 +125,60 @@ export interface ImageApiResult {
   usage?: unknown
 }
 
+export type PromptTemplateCategoryId =
+  | 'people-characters'
+  | 'products-brands'
+  | 'food-still-life'
+  | 'spaces-architecture'
+  | 'landscapes-nature'
+  | 'narrative-worldbuilding'
+  | 'graphic-communication'
+  | 'experimental-abstract'
+
+export type PromptTemplateMedium =
+  | 'photography'
+  | 'illustration'
+  | 'three-dimensional'
+  | 'graphic-design'
+
+export type PromptTemplateStyleId =
+  | 'realistic'
+  | 'cinematic'
+  | 'editorial'
+  | 'commercial'
+  | 'minimal'
+  | 'oriental'
+  | 'science-fiction'
+  | 'fantasy'
+  | 'healing'
+  | 'retro'
+  | 'miniature'
+  | 'surreal'
+  | 'abstract'
+  | 'luxury'
+  | 'natural'
+  | 'typographic'
+
+export interface PromptTemplateVariable {
+  key: string
+  label: string
+  placeholder: string
+  example?: string
+  required: boolean
+}
+
 export interface PromptTemplate {
   id: string
   title: string
+  summary: string
   content: string
-  category: string
+  categoryId: PromptTemplateCategoryId | null
+  medium: PromptTemplateMedium | null
+  styleIds: PromptTemplateStyleId[]
+  variables: PromptTemplateVariable[]
+  origin: 'builtin' | 'user'
   useCount: number
+  schemaVersion: number
 }
 
 export const PROMPT_MODULE_CATEGORY_KEYS = [

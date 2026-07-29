@@ -1,6 +1,7 @@
 import 'fake-indexeddb/auto'
 import { describe, expect, it } from 'vitest'
 import { reactive } from 'vue'
+import { PROMPT_TEMPLATE_SCHEMA_VERSION } from '@/assets/prompt-templates'
 import { cloneDefaultSettings } from '@/defaults/settings'
 import {
   loadPromptModules,
@@ -25,18 +26,28 @@ describe('IndexedDB repositories', () => {
   })
 
   it('persists prompt templates and usage counts', async () => {
-    await saveTemplates([
-      { id: 'template-test', title: 'Test', content: 'A {{subject}}', category: 'Tests', useCount: 4 },
-    ])
-
-    const templates = await loadTemplates()
-    expect(templates).toContainEqual({
+    const promptTemplate = {
       id: 'template-test',
       title: 'Test',
+      summary: 'Template persistence test.',
       content: 'A {{subject}}',
-      category: 'Tests',
+      categoryId: 'people-characters' as const,
+      medium: 'illustration' as const,
+      styleIds: ['editorial' as const],
+      variables: [{
+        key: 'subject',
+        label: 'Subject',
+        placeholder: 'Describe the subject',
+        required: true,
+      }],
+      origin: 'user' as const,
       useCount: 4,
-    })
+      schemaVersion: PROMPT_TEMPLATE_SCHEMA_VERSION,
+    }
+    await saveTemplates([promptTemplate])
+
+    const templates = await loadTemplates()
+    expect(templates).toContainEqual(promptTemplate)
   })
 
   it('persists functional prompt modules independently from full templates', async () => {
