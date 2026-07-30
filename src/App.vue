@@ -48,9 +48,24 @@ onMounted(async () => {
 
     <!-- 全局轻提示 -->
     <Transition name="toast">
-      <div
-        v-if="ui.toast"
+      <button
+        v-if="ui.toast?.onClick"
         :key="ui.toast.id"
+        type="button"
+        class="toast-message fixed right-6 top-5 z-[60] flex items-center gap-3 rounded-xl border border-line bg-well/95 px-4 py-2.5 text-left text-[12.5px] shadow-pop backdrop-blur transition-colors hover:border-amber/45 hover:bg-well"
+        :aria-label="`${ui.toast.text}，${ui.toast.actionLabel ?? '查看详情'}`"
+        @click="ui.activateToast()"
+      >
+        <span>{{ ui.toast.text }}</span>
+        <span class="whitespace-nowrap font-mono text-[10.5px] text-amberhi">
+          {{ ui.toast.actionLabel ?? '查看详情' }}
+        </span>
+      </button>
+      <div
+        v-else-if="ui.toast"
+        :key="ui.toast.id"
+        role="status"
+        aria-live="polite"
         class="toast-message fixed right-6 top-5 z-[60] rounded-xl border border-line bg-well/95 px-4 py-2.5 text-[12.5px] shadow-pop backdrop-blur"
       >
         {{ ui.toast.text }}

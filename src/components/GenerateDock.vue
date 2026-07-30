@@ -318,6 +318,28 @@ function openTaskResult(task: GenerationTask, imageId: string) {
   if (ids.length) ui.openViewer(imageId, ids)
 }
 
+function showCompletedTaskToast(task: GenerationTask) {
+  const completedImages = taskImages(task)
+  if (!completedImages.length) {
+    ui.showToast('生成完成', { durationMs: 3000 })
+    return
+  }
+
+  ui.showToast(`生成完成 · ${completedImages.length} 张图片`, {
+    actionLabel: '查看详情',
+    durationMs: 3000,
+    onClick: () => {
+      const availableImages = taskImages(task)
+      const firstAvailableImage = availableImages[0]
+      if (!firstAvailableImage) {
+        ui.showToast('图片已不存在')
+        return
+      }
+      ui.openViewer(firstAvailableImage.id, availableImages.map(image => image.id))
+    },
+  })
+}
+
 let clock: ReturnType<typeof setInterval> | undefined
 onMounted(() => {
   document.addEventListener('click', closeMenus)
@@ -348,7 +370,11 @@ watch(
       const key = `${task.id}:${task.status}`
       if (seenTerminalTasks.has(key)) continue
       seenTerminalTasks.add(key)
-      ui.showToast(task.status === 'done' ? `生成完成 · ${task.imageIds.length} 张图片已进入图库` : '生成失败 · 可在创作浮窗中重试')
+      if (task.status === 'done') {
+        showCompletedTaskToast(task)
+      } else {
+        ui.showToast('生成失败 · 可在创作浮窗中重试')
+      }
     }
   },
 )

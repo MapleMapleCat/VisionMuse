@@ -230,8 +230,7 @@ async function useFinalTemplatePrompt(template: PromptTemplate, content: string)
   ui.draftPrompt = content
   ui.dockOpen = true
   fillTarget.value = null
-  await router.push('/gallery')
-  ui.showToast('成品模板已带入直接创作')
+  ui.showToast('成品模板已带入创作浮窗')
 }
 
 function useFilledTemplatePrompt(content: string) {

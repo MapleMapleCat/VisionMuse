@@ -10,6 +10,19 @@ import { revokeReferenceImage } from '@/services/imageAssets'
 import { MEDIA_LIMITS, formatMegabytes } from '@/services/resourceLimits'
 import { useTemplateStore } from './templates'
 
+interface ToastOptions {
+  actionLabel?: string
+  durationMs?: number
+  onClick?: () => void
+}
+
+interface ToastMessage {
+  id: number
+  text: string
+  actionLabel?: string
+  onClick?: () => void
+}
+
 export const useUiStore = defineStore('ui', () => {
   // 生成浮窗（底部对话式）
   const dockOpen = ref(false)
@@ -23,12 +36,35 @@ export const useUiStore = defineStore('ui', () => {
   const lightbox = ref(false)
 
   // 轻提示
-  const toast = ref<{ id: number; text: string } | null>(null)
+  const toast = ref<ToastMessage | null>(null)
   let toastTimer: ReturnType<typeof setTimeout> | null = null
-  function showToast(text: string) {
+
+  function dismissToast() {
     if (toastTimer) clearTimeout(toastTimer)
-    toast.value = { id: Date.now(), text }
-    toastTimer = setTimeout(() => (toast.value = null), 2600)
+    toastTimer = null
+    toast.value = null
+  }
+
+  function showToast(text: string, options: ToastOptions = {}) {
+    dismissToast()
+    const toastId = Date.now()
+    toast.value = {
+      id: toastId,
+      text,
+      actionLabel: options.actionLabel,
+      onClick: options.onClick,
+    }
+    toastTimer = setTimeout(() => {
+      if (toast.value?.id === toastId) toast.value = null
+      toastTimer = null
+    }, options.durationMs ?? 2600)
+  }
+
+  function activateToast() {
+    const onClick = toast.value?.onClick
+    if (!onClick) return
+    dismissToast()
+    onClick()
   }
 
   function openViewer(id: string, list: string[]) {
@@ -131,7 +167,8 @@ export const useUiStore = defineStore('ui', () => {
   return {
     dockOpen, draftPrompt, draftParams, referenceImages,
     viewerId, viewerList, lightbox, toast,
-    showToast, openViewer, closeViewer, stepViewer,
+    showToast, dismissToast, activateToast,
+    openViewer, closeViewer, stepViewer,
     remix, useAsReference, saveAsTemplate,
     addReferenceImages, removeReferenceImage, clearReferenceImages,
     prepareReferenceImagesForSubmission,
