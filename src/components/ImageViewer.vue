@@ -33,7 +33,6 @@ const lightboxCloseButton = ref<HTMLButtonElement>()
 const lightboxImage = ref<HTMLImageElement>()
 const viewerImageButton = ref<HTMLButtonElement>()
 const lightboxZoom = ref(1)
-const lightboxTransformOrigin = ref('50% 50%')
 const lightboxHorizontalOffset = ref(0)
 const lightboxVerticalOffset = ref(0)
 const isLightboxDragging = ref(false)
@@ -61,7 +60,6 @@ function cancelPendingLightboxClick() {
 function resetLightboxZoom() {
   cancelPendingLightboxClick()
   lightboxZoom.value = 1
-  lightboxTransformOrigin.value = '50% 50%'
   lightboxHorizontalOffset.value = 0
   lightboxVerticalOffset.value = 0
   activeLightboxPointerId = undefined
@@ -70,19 +68,23 @@ function resetLightboxZoom() {
   shouldSuppressNextLightboxClick = false
 }
 
+function setLightboxZoomAt(clientX: number, clientY: number, nextLightboxZoom: number) {
+  const currentLightboxZoom = lightboxZoom.value
+  if (nextLightboxZoom === currentLightboxZoom || !lightboxImage.value) return
+
+  const imageBounds = lightboxImage.value.getBoundingClientRect()
+  const currentImageCenterX = imageBounds.left + imageBounds.width / 2
+  const currentImageCenterY = imageBounds.top + imageBounds.height / 2
+  const zoomRatio = nextLightboxZoom / currentLightboxZoom
+
+  lightboxHorizontalOffset.value += (1 - zoomRatio) * (clientX - currentImageCenterX)
+  lightboxVerticalOffset.value += (1 - zoomRatio) * (clientY - currentImageCenterY)
+  lightboxZoom.value = nextLightboxZoom
+}
+
 function zoomInLightboxAt(clientX: number, clientY: number) {
   if (!canZoomInLightbox.value) return
-
-  if (lightboxZoom.value === 1 && lightboxImage.value) {
-    const imageBounds = lightboxImage.value.getBoundingClientRect()
-    if (imageBounds.width > 0 && imageBounds.height > 0) {
-      const horizontalOrigin = Math.min(Math.max(clientX - imageBounds.left, 0), imageBounds.width)
-      const verticalOrigin = Math.min(Math.max(clientY - imageBounds.top, 0), imageBounds.height)
-      lightboxTransformOrigin.value = `${(horizontalOrigin / imageBounds.width) * 100}% ${(verticalOrigin / imageBounds.height) * 100}%`
-    }
-  }
-
-  lightboxZoom.value = Math.min(lightboxZoom.value + 1, maximumLightboxZoom)
+  setLightboxZoomAt(clientX, clientY, Math.min(lightboxZoom.value + 1, maximumLightboxZoom))
 }
 
 function scheduleLightboxZoomIn(event: MouseEvent) {
@@ -99,15 +101,10 @@ function scheduleLightboxZoomIn(event: MouseEvent) {
   }, lightboxSingleClickDelayMilliseconds)
 }
 
-function zoomOutLightbox() {
+function zoomOutLightbox(event: MouseEvent) {
   cancelPendingLightboxClick()
   const nextLightboxZoom = Math.max(lightboxZoom.value - 1, 1)
-  if (lightboxZoom.value > 1 && nextLightboxZoom === 1) {
-    lightboxHorizontalOffset.value = 0
-    lightboxVerticalOffset.value = 0
-    lightboxTransformOrigin.value = '50% 50%'
-  }
-  lightboxZoom.value = nextLightboxZoom
+  setLightboxZoomAt(event.clientX, event.clientY, nextLightboxZoom)
 }
 
 function startLightboxDrag(event: PointerEvent) {
@@ -481,7 +478,6 @@ const dateText = computed(() => {
         :class="{ 'transition-transform duration-300 ease-out': !isLightboxDragging }"
         :style="{
           transform: `translate3d(${lightboxHorizontalOffset}px, ${lightboxVerticalOffset}px, 0) scale(${lightboxZoom})`,
-          transformOrigin: lightboxTransformOrigin,
         }"
       />
       <span class="pointer-events-none absolute bottom-4 left-1/2 -translate-x-1/2 rounded-lg bg-white/10 px-3 py-1 font-mono text-[11px] text-white/70">
