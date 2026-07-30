@@ -4,7 +4,10 @@ import { MEDIA_LIMITS } from '@/services/resourceLimits'
 import { buildJsonRequestBody, buildMultipartRequestBody, requestImages } from '@/services/imageApi'
 
 describe('custom image API request templates', () => {
-  afterEach(() => vi.unstubAllGlobals())
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.unstubAllGlobals()
+  })
 
   it('requests base64 image responses in the default templates', () => {
     const settings = cloneDefaultSettings().api
@@ -261,6 +264,99 @@ describe('custom image API request templates', () => {
         height: 1024,
       })),
     })).rejects.toThrow('Base64 模式下参考图总大小')
+  })
+
+  it('does not count active response transmission toward the response wait timeout', async () => {
+    vi.useFakeTimers()
+    vi.stubGlobal('window', globalThis)
+    const encodedResponse = JSON.stringify({
+      data: [{ b64_json: btoa('slowly-transferred-image') }],
+    })
+    const responseEncoder = new TextEncoder()
+    const responseBody = new ReadableStream<Uint8Array>({
+      start(controller) {
+        window.setTimeout(() => {
+          controller.enqueue(responseEncoder.encode(encodedResponse.slice(0, 10)))
+        }, 900)
+        window.setTimeout(() => {
+          controller.enqueue(responseEncoder.encode(encodedResponse.slice(10)))
+          controller.close()
+        }, 1_800)
+      },
+    })
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(responseBody, {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    })))
+    const settings = cloneDefaultSettings().api
+    settings.timeoutMs = 1_000
+
+    const requestPromise = requestImages({
+      settings,
+      prompt: 'slow response transmission',
+      params: { size: '1024x1024', quality: 'medium', format: 'png', n: 1 },
+    })
+
+    await vi.advanceTimersByTimeAsync(1_800)
+
+    const result = await requestPromise
+    expect(await result.images[0].blob.text()).toBe('slowly-transferred-image')
+  })
+
+  it('still enforces the timeout while waiting for response headers', async () => {
+    vi.useFakeTimers()
+    vi.stubGlobal('window', globalThis)
+    vi.stubGlobal('fetch', vi.fn((_url: string, requestInit?: RequestInit) => new Promise<Response>((_resolve, reject) => {
+      const requestSignal = requestInit?.signal
+      requestSignal?.addEventListener('abort', () => reject(requestSignal.reason), { once: true })
+    })))
+    const settings = cloneDefaultSettings().api
+    settings.timeoutMs = 1_000
+    const requestPromise = requestImages({
+      settings,
+      prompt: 'response that never starts',
+      params: { size: '1024x1024', quality: 'medium', format: 'png', n: 1 },
+    })
+    const rejectionExpectation = expect(requestPromise).rejects.toThrow(
+      '请求超过 1 秒，已停止等待',
+    )
+
+    await vi.advanceTimersByTimeAsync(1_000)
+
+    await rejectionExpectation
+  })
+
+  it('stops response transmission after a full timeout interval without data', async () => {
+    vi.useFakeTimers()
+    vi.stubGlobal('window', globalThis)
+    let responseBodyWasCanceled = false
+    const stalledResponseBody = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('{"data":['))
+      },
+      cancel() {
+        responseBodyWasCanceled = true
+      },
+    })
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(stalledResponseBody, {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    })))
+    const settings = cloneDefaultSettings().api
+    settings.timeoutMs = 1_000
+    const requestPromise = requestImages({
+      settings,
+      prompt: 'stalled response transmission',
+      params: { size: '1024x1024', quality: 'medium', format: 'png', n: 1 },
+    })
+    const rejectionExpectation = expect(requestPromise).rejects.toThrow(
+      '接口 JSON 响应传输超过 1 秒未收到数据',
+    )
+
+    await vi.advanceTimersByTimeAsync(1_000)
+
+    await rejectionExpectation
+    expect(responseBodyWasCanceled).toBe(true)
   })
 
   it('aborts a response body that stalls after sending headers', async () => {

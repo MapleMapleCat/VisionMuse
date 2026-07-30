@@ -40,7 +40,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     authPrefix: 'Bearer ',
     extraHeaders: '{}',
     testUrl: 'https://api.openai.com/v1/models/gpt-image-2',
-    timeoutMs: 180_000,
+    timeoutMs: 300_000,
     maxConcurrent: 2,
     generation: {
       url: 'https://api.openai.com/v1/images/generations',

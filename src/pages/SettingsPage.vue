@@ -240,7 +240,7 @@ onBeforeUnmount(() => {
               <input v-model="settingsStore.settings.api.authPrefix" class="input font-mono" placeholder="Bearer " />
             </label>
             <label class="block">
-              <span class="field-label mb-1.5 block">超时（毫秒）</span>
+              <span class="field-label mb-1.5 block">生图等待超时（毫秒）</span>
               <input v-model.number="settingsStore.settings.api.timeoutMs" type="number" min="1000" class="input font-mono" />
             </label>
             <label class="block">

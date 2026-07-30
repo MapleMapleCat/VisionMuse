@@ -94,6 +94,7 @@ async function readResponseBlobWithinLimit(
   maximumBytes: number,
   resourceLabel: string,
   signal?: AbortSignal,
+  transferInactivityTimeoutMs?: number,
 ): Promise<Blob> {
   const declaredContentLength = getDeclaredContentLength(response)
   if (declaredContentLength !== undefined && declaredContentLength > maximumBytes) {
@@ -110,12 +111,32 @@ async function readResponseBlobWithinLimit(
 
   const responseReader = response.body.getReader()
   const responseChunks: BlobPart[] = []
+  const transferController = new AbortController()
+  let transferInactivityTimer: number | undefined
+  let transferTimedOut = false
   let receivedBytes = 0
+  const abortTransferFromExternalSignal = () => {
+    transferController.abort(signal?.reason ?? new DOMException('请求已取消', 'AbortError'))
+  }
+  const restartTransferInactivityTimer = () => {
+    if (transferInactivityTimeoutMs === undefined) return
+    window.clearTimeout(transferInactivityTimer)
+    transferInactivityTimer = window.setTimeout(() => {
+      transferTimedOut = true
+      transferController.abort(new DOMException('响应传输超时', 'TimeoutError'))
+    }, transferInactivityTimeoutMs)
+  }
+
+  if (signal?.aborted) abortTransferFromExternalSignal()
+  else signal?.addEventListener('abort', abortTransferFromExternalSignal, { once: true })
+  restartTransferInactivityTimer()
+
   try {
     while (true) {
-      throwIfAborted(signal)
-      const { done, value } = await readStreamChunkWithAbort(responseReader, signal)
+      throwIfAborted(transferController.signal)
+      const { done, value } = await readStreamChunkWithAbort(responseReader, transferController.signal)
       if (done) break
+      restartTransferInactivityTimer()
       receivedBytes += value.byteLength
       if (receivedBytes > maximumBytes) {
         void responseReader.cancel().catch(() => undefined)
@@ -123,7 +144,17 @@ async function readResponseBlobWithinLimit(
       }
       responseChunks.push(value)
     }
+  } catch (error) {
+    if (signal?.aborted) throw signal.reason ?? error
+    if (transferTimedOut && transferInactivityTimeoutMs !== undefined) {
+      throw new ImageApiError(
+        `${resourceLabel}传输超过 ${Math.round(transferInactivityTimeoutMs / 1000)} 秒未收到数据，已停止等待`,
+      )
+    }
+    throw error
   } finally {
+    window.clearTimeout(transferInactivityTimer)
+    signal?.removeEventListener('abort', abortTransferFromExternalSignal)
     try {
       responseReader.releaseLock()
     } catch {
@@ -140,8 +171,15 @@ async function readResponseTextWithinLimit(
   maximumBytes: number,
   resourceLabel: string,
   signal?: AbortSignal,
+  transferInactivityTimeoutMs?: number,
 ): Promise<string> {
-  return (await readResponseBlobWithinLimit(response, maximumBytes, resourceLabel, signal)).text()
+  return (await readResponseBlobWithinLimit(
+    response,
+    maximumBytes,
+    resourceLabel,
+    signal,
+    transferInactivityTimeoutMs,
+  )).text()
 }
 
 function estimateBase64DecodedBytes(base64Value: string): number {
@@ -278,12 +316,17 @@ function createHeaders(settings: ApiSettings, includeJsonContentType: boolean): 
   return headers
 }
 
-async function parseApiError(response: Response, signal?: AbortSignal): Promise<ImageApiError> {
+async function parseApiError(
+  response: Response,
+  signal?: AbortSignal,
+  transferInactivityTimeoutMs?: number,
+): Promise<ImageApiError> {
   const responseText = await readResponseTextWithinLimit(
     response,
     Math.min(MEDIA_LIMITS.maximumApiJsonBytes, 1024 * 1024),
     '接口错误响应',
     signal,
+    transferInactivityTimeoutMs,
   )
   let detail = responseText
   try {
@@ -311,17 +354,22 @@ async function fetchWithTimeout<ResponseValue>(
     throw externalSignal.reason ?? new DOMException('请求已取消', 'AbortError')
   }
   const controller = new AbortController()
-  const timeout = window.setTimeout(() => controller.abort(new DOMException('请求超时', 'TimeoutError')), timeoutMs)
+  let responseWaitTimedOut = false
+  const timeout = window.setTimeout(() => {
+    responseWaitTimedOut = true
+    controller.abort(new DOMException('请求超时', 'TimeoutError'))
+  }, timeoutMs)
   const abortFromExternalSignal = () => controller.abort(externalSignal?.reason)
   externalSignal?.addEventListener('abort', abortFromExternalSignal, { once: true })
 
   try {
     const response = await fetch(url, { ...init, signal: controller.signal })
+    window.clearTimeout(timeout)
     if (!consumeResponse) return response as ResponseValue
     return await consumeResponse(response, controller.signal)
   } catch (error) {
     if (externalSignal?.aborted) throw error
-    if (controller.signal.aborted) throw new ImageApiError(`请求超过 ${Math.round(timeoutMs / 1000)} 秒，已停止等待`)
+    if (responseWaitTimedOut) throw new ImageApiError(`请求超过 ${Math.round(timeoutMs / 1000)} 秒，已停止等待`)
     if (error instanceof TypeError) {
       throw new ImageApiError('网络请求失败。请检查接口地址、网络连接以及接口是否允许浏览器跨域访问（CORS）')
     }
@@ -389,6 +437,7 @@ async function parseImageResponse(
       MEDIA_LIMITS.maximumApiResponseImageBytes,
       '接口图片响应',
       signal,
+      settings.timeoutMs,
     )
     return { images: [{ blob, mimeType: blob.type || responseContentType }] }
   }
@@ -400,6 +449,7 @@ async function parseImageResponse(
       MEDIA_LIMITS.maximumApiJsonBytes,
       '接口 JSON 响应',
       signal,
+      settings.timeoutMs,
     ))
   } catch (error) {
     if (error instanceof ImageApiError) throw error
@@ -450,12 +500,15 @@ async function parseImageResponse(
         settings.timeoutMs,
         signal,
         async (imageResponse, requestSignal) => {
-          if (!imageResponse.ok) throw await parseApiError(imageResponse, requestSignal)
+          if (!imageResponse.ok) {
+            throw await parseApiError(imageResponse, requestSignal, settings.timeoutMs)
+          }
           return readResponseBlobWithinLimit(
             imageResponse,
             Math.min(MEDIA_LIMITS.maximumApiResponseImageBytes, remainingResponseBudget),
             '远程图片响应',
             requestSignal,
+            settings.timeoutMs,
           )
         },
       )
@@ -505,7 +558,7 @@ async function executeOperation(
     settings.timeoutMs,
     signal,
     async (response, requestSignal) => {
-      if (!response.ok) throw await parseApiError(response, requestSignal)
+      if (!response.ok) throw await parseApiError(response, requestSignal, settings.timeoutMs)
       throwIfAborted(requestSignal)
       return parseImageResponse(
         response,
@@ -543,7 +596,9 @@ export async function testApiConnection(settings: ApiSettings): Promise<void> {
     Math.min(validatedSettings.timeoutMs, 30_000),
     undefined,
     async (response, requestSignal) => {
-      if (!response.ok) throw await parseApiError(response, requestSignal)
+      if (!response.ok) {
+        throw await parseApiError(response, requestSignal, validatedSettings.timeoutMs)
+      }
       if (response.body) void response.body.cancel().catch(() => undefined)
     },
   )
