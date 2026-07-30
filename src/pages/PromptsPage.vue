@@ -37,6 +37,12 @@ const props = defineProps<{
   activeView: 'modules' | 'templates'
 }>()
 
+interface SelectedPromptDomainGroup {
+  domainId: string
+  domainLabel: string
+  choiceDetails: SelectedPromptChoiceDetail[]
+}
+
 const ui = useUiStore()
 const templateStore = useTemplateStore()
 const promptModuleStore = usePromptModuleStore()
@@ -44,6 +50,7 @@ const route = useRoute()
 const router = useRouter()
 
 const activeView = computed(() => props.activeView)
+const composerPanelTab = ref<'selections' | 'preview'>('selections')
 const corePrompt = ref('')
 const selectedChoiceIds = ref<string[]>([])
 const promptPreviewIsUpdating = ref(false)
@@ -66,6 +73,25 @@ const selectedModuleCount = computed(() => selectedPromptModules.value.length)
 const selectedGroupCount = computed(() => new Set(
   selectedChoiceDetails.value.map(selectedChoiceDetail => selectedChoiceDetail.group.id),
 ).size)
+const selectedPromptDomainGroups = computed<SelectedPromptDomainGroup[]>(() => {
+  const domainGroupsById = new Map<string, SelectedPromptDomainGroup>()
+
+  for (const selectedChoiceDetail of selectedChoiceDetails.value) {
+    const existingDomainGroup = domainGroupsById.get(selectedChoiceDetail.domain.id)
+    if (existingDomainGroup) {
+      existingDomainGroup.choiceDetails.push(selectedChoiceDetail)
+      continue
+    }
+
+    domainGroupsById.set(selectedChoiceDetail.domain.id, {
+      domainId: selectedChoiceDetail.domain.id,
+      domainLabel: selectedChoiceDetail.domain.label,
+      choiceDetails: [selectedChoiceDetail],
+    })
+  }
+
+  return [...domainGroupsById.values()]
+})
 const canUseComposition = computed(() => corePrompt.value.trim().length > 0)
 
 function applySelectionMutation(
@@ -97,6 +123,10 @@ function clearTaxonomyDomain(domainId: string) {
 
 function clearComposition() {
   corePrompt.value = ''
+  selectedChoiceIds.value = []
+}
+
+function clearSelectedPromptModules() {
   selectedChoiceIds.value = []
 }
 
@@ -367,60 +397,109 @@ onBeforeUnmount(() => {
               />
             </div>
 
-            <div class="mt-5 flex items-center justify-between gap-3">
-              <div class="min-w-0">
-                <p class="field-label">Selected elements</p>
-                <h3 class="mt-1 text-[13px] font-semibold">已选构建元素</h3>
-              </div>
-              <Transition name="composer-count" mode="out-in">
-                <span
-                  :key="`${selectedModuleCount}-${selectedGroupCount}`"
-                  class="shrink-0 rounded-full bg-accentsoft px-2.5 py-1 font-mono text-[10px] text-accenthi"
-                >
-                  {{ selectedModuleCount }} 项 · {{ selectedGroupCount }} 组
-                </span>
-              </Transition>
-            </div>
-
-            <div class="selected-module-panel mt-3">
-              <TransitionGroup name="track-segment-list" tag="div" class="selected-module-list">
+            <section class="composer-workspace mt-5" aria-label="提示词编排工作区">
+              <div class="composer-workspace-tabs" role="tablist" aria-label="组合面板内容">
                 <button
-                  v-for="selectedChoiceDetail in selectedChoiceDetails"
-                  :key="selectedChoiceDetail.choiceId"
-                  class="selected-module-row"
-                  :title="`移除${getSelectionPath(selectedChoiceDetail)}`"
-                  :aria-label="`移除${getSelectionPath(selectedChoiceDetail)}`"
-                  @click="removePromptChoice(selectedChoiceDetail.choiceId)"
+                  id="composer-selections-tab"
+                  class="composer-workspace-tab"
+                  :class="{ 'is-active': composerPanelTab === 'selections' }"
+                  role="tab"
+                  :aria-selected="composerPanelTab === 'selections'"
+                  aria-controls="composer-selections-panel"
+                  @click="composerPanelTab = 'selections'"
                 >
-                  <span class="selected-module-copy">
-                    <small>{{ selectedChoiceDetail.group.outputLabel }}</small>
-                    <strong>{{ getSelectionPath(selectedChoiceDetail) }}</strong>
-                  </span>
-                  <span class="selected-module-remove" aria-hidden="true">×</span>
+                  已选元素
+                  <span>{{ selectedModuleCount }}</span>
                 </button>
-                <p
-                  v-if="!selectedChoiceDetails.length"
-                  key="empty"
-                  class="selected-module-empty"
+                <button
+                  id="composer-preview-tab"
+                  class="composer-workspace-tab"
+                  :class="{ 'is-active': composerPanelTab === 'preview' }"
+                  role="tab"
+                  :aria-selected="composerPanelTab === 'preview'"
+                  aria-controls="composer-preview-panel"
+                  @click="composerPanelTab = 'preview'"
                 >
-                  尚未选择元素，请从左侧分类中添加。
-                </p>
-              </TransitionGroup>
-            </div>
+                  最终提示词
+                  <span :class="{ 'has-content': composedPrompt }">
+                    {{ composedPrompt ? '已生成' : '待生成' }}
+                  </span>
+                </button>
+              </div>
 
-            <div class="mt-5">
-              <p class="field-label">Final prompt</p>
               <div
-                class="final-prompt-panel mt-2"
+                v-if="composerPanelTab === 'selections'"
+                id="composer-selections-panel"
+                class="composer-workspace-panel"
+                role="tabpanel"
+                aria-labelledby="composer-selections-tab"
+              >
+                <div class="composer-panel-toolbar">
+                  <p>{{ selectedModuleCount }} 项元素，来自 {{ selectedGroupCount }} 个选择组</p>
+                  <button
+                    v-if="selectedModuleCount"
+                    type="button"
+                    @click="clearSelectedPromptModules"
+                  >
+                    清空元素
+                  </button>
+                </div>
+
+                <div v-if="selectedPromptDomainGroups.length" class="selected-domain-list">
+                  <section
+                    v-for="domainGroup in selectedPromptDomainGroups"
+                    :key="domainGroup.domainId"
+                    class="selected-domain-group"
+                  >
+                    <header class="selected-domain-header">
+                      <span class="selected-domain-marker" aria-hidden="true" />
+                      <strong>{{ domainGroup.domainLabel }}</strong>
+                      <small>{{ domainGroup.choiceDetails.length }}</small>
+                    </header>
+
+                    <div class="selected-domain-grid">
+                      <button
+                        v-for="selectedChoiceDetail in domainGroup.choiceDetails"
+                        :key="selectedChoiceDetail.choiceId"
+                        class="selected-module-item"
+                        :title="`${getSelectionPath(selectedChoiceDetail)}；点击移除`"
+                        :aria-label="`移除${getSelectionPath(selectedChoiceDetail)}`"
+                        @click="removePromptChoice(selectedChoiceDetail.choiceId)"
+                      >
+                        <span class="selected-module-copy">
+                          <strong>{{ selectedChoiceDetail.promptModule.title }}</strong>
+                          <small>{{ selectedChoiceDetail.group.outputLabel }}</small>
+                        </span>
+                        <span class="selected-module-remove" aria-hidden="true">×</span>
+                      </button>
+                    </div>
+                  </section>
+                </div>
+
+                <div v-else class="composer-panel-empty">
+                  <strong>尚未选择构建元素</strong>
+                  <span>从左侧分类开始选择，内容会按构建顺序排列在这里。</span>
+                </div>
+              </div>
+
+              <div
+                v-else
+                id="composer-preview-panel"
+                class="composer-workspace-panel final-prompt-panel"
                 :class="{ 'is-updating': promptPreviewIsUpdating }"
+                role="tabpanel"
+                aria-labelledby="composer-preview-tab"
               >
                 <p
                   v-if="composedPrompt"
                   class="final-prompt-natural-language whitespace-pre-wrap"
                 >{{ composedPrompt }}</p>
-                <p v-else class="text-[11.5px] text-dim">最终提示词将在这里显示</p>
+                <div v-else class="composer-panel-empty">
+                  <strong>最终提示词将在这里显示</strong>
+                  <span>填写画面核心，并按需选择左侧构建元素。</span>
+                </div>
               </div>
-            </div>
+            </section>
 
             <div class="mt-4 grid grid-cols-[auto_1fr] gap-2">
               <button class="btn px-3" :disabled="!canUseComposition" @click="copyComposedPrompt">复制</button>
@@ -617,49 +696,171 @@ input[type='search']::-webkit-search-cancel-button { display: none; }
   font-size: 8.5px;
   color: var(--color-well);
 }
-.selected-module-panel {
-  min-height: 96px;
-  max-height: 240px;
-  overflow-y: auto;
-  overscroll-behavior: contain;
+.composer-workspace {
+  overflow: hidden;
   border: 1px solid var(--color-line);
   border-radius: 12px;
   background: color-mix(in srgb, var(--color-ink) 45%, var(--color-well));
-  padding: 7px;
 }
-.selected-module-list {
-  position: relative;
+.composer-workspace-tabs {
   display: grid;
-  gap: 6px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 3px;
+  border-bottom: 1px solid var(--color-line);
+  background: var(--color-panel2);
+  padding: 4px;
 }
-.selected-module-row {
-  display: grid;
-  width: 100%;
-  grid-template-columns: minmax(0, 1fr) 24px;
+.composer-workspace-tab {
+  display: flex;
+  min-width: 0;
   align-items: center;
-  gap: 8px;
-  border: 1px solid var(--color-line);
-  border-radius: 9px;
+  justify-content: space-between;
+  gap: 6px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  padding: 8px 9px;
+  color: var(--color-fade);
+  cursor: pointer;
+  font-size: 10.5px;
+  font-weight: 600;
+  transition:
+    background var(--motion-fast) ease,
+    color var(--motion-fast) ease,
+    box-shadow var(--motion-fast) ease;
+}
+.composer-workspace-tab:hover {
+  color: var(--color-paper);
+}
+.composer-workspace-tab.is-active {
   background: var(--color-well);
-  padding: 7px 7px 7px 9px;
+  color: var(--color-paper);
+  box-shadow: 0 1px 3px rgb(38 35 28 / 0.12);
+}
+.composer-workspace-tab > span {
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-paper) 7%, transparent);
+  padding: 2px 6px;
+  font-family: var(--font-mono);
+  font-size: 8px;
+  font-weight: 400;
+  color: var(--color-dim);
+}
+.composer-workspace-tab > span.has-content {
+  background: var(--color-accentsoft);
+  color: var(--color-accenthi);
+}
+.composer-workspace-panel {
+  height: clamp(240px, 34vh, 320px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 12px;
+  scrollbar-gutter: stable;
+}
+.composer-panel-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 9px;
+  padding: 0 2px;
+}
+.composer-panel-toolbar p {
+  overflow: hidden;
+  color: var(--color-dim);
+  font-size: 9.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.composer-panel-toolbar button {
+  flex: 0 0 auto;
+  border: 0;
+  background: transparent;
+  padding: 2px;
+  color: var(--color-dim);
+  cursor: pointer;
+  font-size: 9.5px;
+  transition: color var(--motion-fast) ease;
+}
+.composer-panel-toolbar button:hover,
+.composer-panel-toolbar button:focus-visible {
+  color: var(--color-red);
+}
+.selected-domain-list {
+  display: grid;
+  gap: 12px;
+}
+.selected-domain-group {
+  min-width: 0;
+}
+.selected-domain-group + .selected-domain-group {
+  border-top: 1px solid var(--color-line);
+  padding-top: 11px;
+}
+.selected-domain-header {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+  padding: 0 2px;
+}
+.selected-domain-marker {
+  width: 3px;
+  height: 11px;
+  border-radius: 999px;
+  background: var(--color-accent);
+}
+.selected-domain-header strong {
+  overflow: hidden;
+  color: var(--color-fade);
+  font-size: 10px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.selected-domain-header small {
+  min-width: 16px;
+  border-radius: 999px;
+  background: var(--color-panel2);
+  padding: 1px 5px;
+  font-family: var(--font-mono);
+  font-size: 8px;
+  color: var(--color-dim);
+  text-align: center;
+}
+.selected-domain-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 5px;
+}
+.selected-module-item {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr) 20px;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid var(--color-line);
+  border-radius: 8px;
+  background: var(--color-well);
+  padding: 6px 5px 6px 8px;
   color: var(--color-paper);
   cursor: pointer;
   text-align: left;
   transition:
     border-color var(--motion-fast) ease,
-    background var(--motion-fast) ease,
-    opacity var(--motion-normal) ease,
-    transform var(--motion-normal) var(--ease-out-soft);
+    background var(--motion-fast) ease;
 }
-.selected-module-row:hover,
-.selected-module-row:focus-visible {
+.selected-module-item:hover,
+.selected-module-item:focus-visible {
   border-color: var(--color-accent);
   background: color-mix(in srgb, var(--color-accentsoft) 45%, var(--color-well));
 }
 .selected-module-copy {
   display: grid;
   min-width: 0;
-  gap: 2px;
+  gap: 1px;
 }
 .selected-module-copy small,
 .selected-module-copy strong {
@@ -668,11 +869,9 @@ input[type='search']::-webkit-search-cancel-button { display: none; }
   white-space: nowrap;
 }
 .selected-module-copy small {
-  font-family: var(--font-mono);
   font-size: 8px;
   font-weight: 400;
   color: var(--color-dim);
-  text-transform: uppercase;
 }
 .selected-module-copy strong {
   font-size: 10.5px;
@@ -680,62 +879,41 @@ input[type='search']::-webkit-search-cancel-button { display: none; }
 }
 .selected-module-remove {
   display: grid;
-  width: 24px;
-  height: 24px;
+  width: 20px;
+  height: 20px;
   place-items: center;
-  border-radius: 6px;
+  border-radius: 5px;
   color: var(--color-dim);
-  font-size: 15px;
+  font-size: 13px;
   line-height: 1;
 }
-.selected-module-row:hover .selected-module-remove,
-.selected-module-row:focus-visible .selected-module-remove {
+.selected-module-item:hover .selected-module-remove,
+.selected-module-item:focus-visible .selected-module-remove {
   background: color-mix(in srgb, var(--color-red) 8%, transparent);
   color: var(--color-red);
 }
-.selected-module-empty {
-  align-self: center;
-  padding: 30px 10px;
-  color: var(--color-dim);
-  font-size: 10.5px;
+.composer-panel-empty {
+  display: grid;
+  min-height: 100%;
+  align-content: center;
+  justify-items: center;
+  padding: 24px 16px;
   text-align: center;
 }
-.track-segment-list-enter-active,
-.track-segment-list-leave-active,
-.track-segment-list-move {
-  transition:
-    opacity var(--motion-normal) ease,
-    transform var(--motion-normal) var(--ease-out-soft);
+.composer-panel-empty strong {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--color-fade);
 }
-.track-segment-list-enter-from {
-  opacity: 0;
-  transform: translateY(4px);
-}
-.track-segment-list-leave-to {
-  opacity: 0;
-  transform: translateY(-4px);
-}
-.composer-count-enter-active,
-.composer-count-leave-active {
-  transition: opacity var(--motion-fast) ease, transform var(--motion-fast) var(--ease-out-soft);
-}
-.composer-count-enter-from {
-  opacity: 0;
-  transform: translateY(3px);
-}
-.composer-count-leave-to {
-  opacity: 0;
-  transform: translateY(-3px);
+.composer-panel-empty span {
+  max-width: 240px;
+  margin-top: 4px;
+  font-size: 9.5px;
+  line-height: 1.6;
+  color: var(--color-dim);
 }
 .final-prompt-panel {
-  min-height: 144px;
-  max-height: 200px;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  border: 1px solid var(--color-line);
-  border-radius: 12px;
-  background: var(--color-well);
-  padding: 16px;
+  background: color-mix(in srgb, var(--color-well) 76%, var(--color-ink));
   transition: border-color var(--motion-fast) ease, box-shadow var(--motion-normal) ease;
 }
 .final-prompt-natural-language {
