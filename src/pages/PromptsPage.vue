@@ -338,14 +338,16 @@ onBeforeUnmount(() => {
           />
         </div>
 
-        <aside class="order-1 xl:order-2 xl:sticky xl:top-5 xl:self-start">
+        <aside class="order-1 min-w-0 xl:order-2 xl:sticky xl:top-5 xl:self-start">
           <section class="composer-preview rounded-2xl border border-line bg-well p-5 shadow-lift">
             <div class="flex items-start justify-between gap-3">
               <div>
                 <p class="field-label">Composition</p>
                 <h2 class="mt-1 text-[15px] font-semibold">组合面板</h2>
               </div>
-              <button class="btn btn-ghost !px-2.5 !py-1.5 text-[10.5px]" @click="clearComposition">全部清空</button>
+              <button class="btn btn-ghost !px-2.5 !py-1.5 text-[10.5px]" @click="clearComposition">
+                全部清空
+              </button>
             </div>
 
             <div class="core-content-panel mt-4">
@@ -370,43 +372,42 @@ onBeforeUnmount(() => {
             </div>
 
             <div class="mt-5 flex items-center justify-between gap-3">
-              <div>
+              <div class="min-w-0">
                 <p class="field-label">Module track</p>
                 <h3 class="mt-1 text-[13px] font-semibold">选择的提示词片段</h3>
               </div>
               <Transition name="composer-count" mode="out-in">
                 <span
                   :key="`${selectedModuleCount}-${selectedGroupCount}`"
-                  class="rounded-full bg-accentsoft px-2.5 py-1 font-mono text-[10px] text-accenthi"
+                  class="shrink-0 rounded-full bg-accentsoft px-2.5 py-1 font-mono text-[10px] text-accenthi"
                 >
                   {{ selectedModuleCount }} 项 · {{ selectedGroupCount }} 组
                 </span>
               </Transition>
             </div>
 
-            <div class="mt-3 min-h-24 rounded-xl border border-line bg-ink/45 p-3">
-              <TransitionGroup
-                name="track-segment-list"
-                tag="div"
-                class="track-segment-list"
-              >
+            <div class="selected-module-panel mt-3">
+              <TransitionGroup name="track-segment-list" tag="div" class="selected-module-list">
                 <button
                   v-for="selectedChoiceDetail in selectedChoiceDetails"
                   :key="selectedChoiceDetail.choiceId"
-                  class="track-segment"
+                  class="selected-module-row"
                   :title="`移除${getSelectionPath(selectedChoiceDetail)}`"
+                  :aria-label="`移除${getSelectionPath(selectedChoiceDetail)}`"
                   @click="removePromptChoice(selectedChoiceDetail.choiceId)"
                 >
-                  <small>{{ selectedChoiceDetail.group.outputLabel }}</small>
-                  {{ getSelectionPath(selectedChoiceDetail) }}
-                  <span aria-hidden="true">×</span>
+                  <span class="selected-module-copy">
+                    <small>{{ selectedChoiceDetail.group.outputLabel }}</small>
+                    <strong>{{ getSelectionPath(selectedChoiceDetail) }}</strong>
+                  </span>
+                  <span class="selected-module-remove" aria-hidden="true">×</span>
                 </button>
                 <p
                   v-if="!selectedChoiceDetails.length"
                   key="empty"
-                  class="track-empty-state"
+                  class="selected-module-empty"
                 >
-                  尚未选择模块
+                  尚未选择模块，从左侧分类中添加片段。
                 </p>
               </TransitionGroup>
             </div>
@@ -414,7 +415,7 @@ onBeforeUnmount(() => {
             <div class="mt-5">
               <p class="field-label">Final prompt</p>
               <div
-                class="final-prompt-panel mt-2 min-h-36 rounded-xl border border-line bg-well p-4"
+                class="final-prompt-panel mt-2"
                 :class="{ 'is-updating': promptPreviewIsUpdating }"
               >
                 <p
@@ -427,7 +428,9 @@ onBeforeUnmount(() => {
 
             <div class="mt-4 grid grid-cols-[auto_1fr] gap-2">
               <button class="btn px-3" :disabled="!canUseComposition" @click="copyComposedPrompt">复制</button>
-              <button class="btn btn-primary" :disabled="!canUseComposition" @click="useComposedPrompt">带入直接创作</button>
+              <button class="btn btn-primary" :disabled="!canUseComposition" @click="useComposedPrompt">
+                带入直接创作
+              </button>
             </div>
           </section>
         </aside>
@@ -576,43 +579,88 @@ input[type='search']::-webkit-search-cancel-button { display: none; }
   font-size: 8.5px;
   color: var(--color-well);
 }
-.track-segment {
-  display: inline-flex;
+.selected-module-panel {
+  min-height: 96px;
+  max-height: 240px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--color-line);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--color-ink) 45%, var(--color-well));
+  padding: 7px;
+}
+.selected-module-list {
+  position: relative;
+  display: grid;
+  gap: 6px;
+}
+.selected-module-row {
+  display: grid;
+  width: 100%;
+  grid-template-columns: minmax(0, 1fr) 24px;
   align-items: center;
-  gap: 5px;
-  border: 1px solid var(--color-line2);
-  border-radius: 8px;
+  gap: 8px;
+  border: 1px solid var(--color-line);
+  border-radius: 9px;
   background: var(--color-well);
-  padding: 5px 7px;
-  font-size: 10px;
-  color: var(--color-fade);
+  padding: 7px 7px 7px 9px;
+  color: var(--color-paper);
+  cursor: pointer;
+  text-align: left;
   transition:
     border-color var(--motion-fast) ease,
-    color var(--motion-fast) ease,
     background var(--motion-fast) ease,
     opacity var(--motion-normal) ease,
     transform var(--motion-normal) var(--ease-out-soft);
 }
-.track-segment:hover {
+.selected-module-row:hover,
+.selected-module-row:focus-visible {
   border-color: var(--color-accent);
-  color: var(--color-paper);
-  transform: translateY(-1px);
+  background: color-mix(in srgb, var(--color-accentsoft) 45%, var(--color-well));
 }
-.track-segment small {
+.selected-module-copy {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+.selected-module-copy small,
+.selected-module-copy strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.selected-module-copy small {
   font-family: var(--font-mono);
   font-size: 8px;
+  font-weight: 400;
   color: var(--color-dim);
   text-transform: uppercase;
 }
-.track-segment-list {
-  position: relative;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
+.selected-module-copy strong {
+  font-size: 10.5px;
+  font-weight: 600;
 }
-.track-empty-state {
+.selected-module-remove {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border-radius: 6px;
   color: var(--color-dim);
-  font-size: 11.5px;
+  font-size: 15px;
+  line-height: 1;
+}
+.selected-module-row:hover .selected-module-remove,
+.selected-module-row:focus-visible .selected-module-remove {
+  background: color-mix(in srgb, var(--color-red) 8%, transparent);
+  color: var(--color-red);
+}
+.selected-module-empty {
+  align-self: center;
+  padding: 30px 10px;
+  color: var(--color-dim);
+  font-size: 10.5px;
+  text-align: center;
 }
 .track-segment-list-enter-active,
 .track-segment-list-leave-active,
@@ -623,14 +671,11 @@ input[type='search']::-webkit-search-cancel-button { display: none; }
 }
 .track-segment-list-enter-from {
   opacity: 0;
-  transform: translateY(5px) scale(0.92);
-}
-.track-segment-list-leave-active {
-  position: absolute;
+  transform: translateY(4px);
 }
 .track-segment-list-leave-to {
   opacity: 0;
-  transform: translateY(-3px) scale(0.88);
+  transform: translateY(-4px);
 }
 .composer-count-enter-active,
 .composer-count-leave-active {
@@ -645,6 +690,14 @@ input[type='search']::-webkit-search-cancel-button { display: none; }
   transform: translateY(-3px);
 }
 .final-prompt-panel {
+  min-height: 144px;
+  max-height: 200px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--color-line);
+  border-radius: 12px;
+  background: var(--color-well);
+  padding: 16px;
   transition: border-color var(--motion-fast) ease, box-shadow var(--motion-normal) ease;
 }
 .final-prompt-natural-language {
