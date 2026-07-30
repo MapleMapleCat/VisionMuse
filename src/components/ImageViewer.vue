@@ -32,6 +32,7 @@ const drawerEl = ref<HTMLElement>()
 const lightboxCloseButton = ref<HTMLButtonElement>()
 const lightboxImage = ref<HTMLImageElement>()
 const viewerImageButton = ref<HTMLButtonElement>()
+const originalImageUrl = ref('')
 const lightboxZoom = ref(1)
 const lightboxHorizontalOffset = ref(0)
 const lightboxVerticalOffset = ref(0)
@@ -201,11 +202,20 @@ onMounted(() => window.addEventListener('keydown', onKey))
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKey)
   cancelPendingLightboxClick()
+  if (originalImageUrl.value) URL.revokeObjectURL(originalImageUrl.value)
   document.body.style.overflow = previousBodyOverflow
   previousFocus?.focus()
 })
 
 watch(() => ui.viewerId, () => (tagInput.value = ''))
+watch(
+  () => rec.value?.originalBlob,
+  originalBlob => {
+    if (originalImageUrl.value) URL.revokeObjectURL(originalImageUrl.value)
+    originalImageUrl.value = originalBlob ? URL.createObjectURL(originalBlob) : ''
+  },
+  { immediate: true },
+)
 watch(
   () => Boolean(rec.value),
   async open => {
@@ -343,7 +353,7 @@ const dateText = computed(() => {
         <div class="min-h-0 flex-1 overflow-y-auto">
           <!-- 大图 -->
           <button ref="viewerImageButton" class="block w-full cursor-zoom-in bg-panel2" title="点击全屏查看" aria-label="全屏查看图片" @click="ui.lightbox = true">
-            <img :key="rec.id" :src="rec.dataUrl" :alt="rec.prompt" class="develop-in mx-auto max-h-[46vh] w-auto max-w-full object-contain" style="animation-duration: 0.4s" />
+            <img :key="rec.id" :src="originalImageUrl || rec.dataUrl" :alt="rec.prompt" class="develop-in mx-auto max-h-[46vh] w-auto max-w-full object-contain" style="animation-duration: 0.4s" />
           </button>
 
           <div class="space-y-4 px-4 py-4">
@@ -472,7 +482,7 @@ const dateText = computed(() => {
       </button>
       <img
         ref="lightboxImage"
-        :src="rec.dataUrl"
+        :src="originalImageUrl || rec.dataUrl"
         :alt="rec.prompt"
         class="pointer-events-none max-h-full max-w-full select-none object-contain will-change-transform"
         :class="{ 'transition-transform duration-300 ease-out': !isLightboxDragging }"
