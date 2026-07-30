@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   PROMPT_TEMPLATE_CATEGORIES,
@@ -33,13 +33,17 @@ import { useTemplateStore } from '@/stores/templates'
 import { useUiStore } from '@/stores/ui'
 import type { PromptTemplate } from '@/types'
 
+const props = defineProps<{
+  activeView: 'modules' | 'templates'
+}>()
+
 const ui = useUiStore()
 const templateStore = useTemplateStore()
 const promptModuleStore = usePromptModuleStore()
 const route = useRoute()
 const router = useRouter()
 
-const activeView = ref<'modules' | 'templates'>('modules')
+const activeView = computed(() => props.activeView)
 const corePrompt = ref('')
 const selectedChoiceIds = ref<string[]>([])
 const promptPreviewIsUpdating = ref(false)
@@ -235,15 +239,15 @@ function useFilledTemplatePrompt(content: string) {
   void useFinalTemplatePrompt(fillTarget.value, content)
 }
 
-onMounted(() => {
-  const requestedTemplateId = typeof route.query.template === 'string'
-    ? route.query.template
-    : undefined
-  const requestedTemplate = templateStore.templates.find(template => template.id === requestedTemplateId)
-  if (!requestedTemplate) return
-  activeView.value = 'templates'
-  useTemplate(requestedTemplate)
-})
+watch(
+  () => [props.activeView, route.query.template] as const,
+  ([requestedView, requestedTemplateId]) => {
+    if (requestedView !== 'templates' || typeof requestedTemplateId !== 'string') return
+    const requestedTemplate = templateStore.templates.find(template => template.id === requestedTemplateId)
+    if (requestedTemplate) useTemplate(requestedTemplate)
+  },
+  { immediate: true },
+)
 
 watch(selectedChoiceIds, showPromptPreviewUpdateFeedback)
 
@@ -311,18 +315,6 @@ onBeforeUnmount(() => {
             </button>
           </div>
         </Transition>
-      </div>
-      <div class="seg mt-4 w-full max-w-[340px]" aria-label="提示词工具">
-        <button
-          :class="{ on: activeView === 'modules' }"
-          :aria-pressed="activeView === 'modules'"
-          @click="activeView = 'modules'"
-        >分级模块</button>
-        <button
-          :class="{ on: activeView === 'templates' }"
-          :aria-pressed="activeView === 'templates'"
-          @click="activeView = 'templates'"
-        >完整提示词</button>
       </div>
     </header>
 

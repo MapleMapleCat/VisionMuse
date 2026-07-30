@@ -182,7 +182,7 @@ function getTemplateContextLabel(template: PromptTemplate): string {
 
 function openPromptModules() {
   showTemplates.value = false
-  void router.push('/prompts')
+  void router.push('/prompt-modules')
 }
 
 function pickHistory(prompt: string) {

@@ -13,7 +13,8 @@ const router = createRouter({
   routes: [
     { path: '/', redirect: '/gallery' },
     { path: '/gallery', component: GalleryPage },
-    { path: '/prompts', component: PromptsPage },
+    { path: '/prompt-modules', component: PromptsPage, props: { activeView: 'modules' } },
+    { path: '/prompts', component: PromptsPage, props: { activeView: 'templates' } },
     { path: '/settings', component: SettingsPage },
     { path: '/generate', redirect: '/gallery' },
   ],
