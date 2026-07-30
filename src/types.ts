@@ -131,6 +131,7 @@ export interface ImageApiResult {
 
 export type PromptTemplateCategoryId =
   | 'people-characters'
+  | 'portrait-photography'
   | 'products-brands'
   | 'food-still-life'
   | 'spaces-architecture'

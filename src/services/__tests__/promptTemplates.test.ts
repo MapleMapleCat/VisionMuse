@@ -6,6 +6,7 @@ import {
   PROMPT_TEMPLATE_SCHEMA_VERSION,
   PROMPT_TEMPLATE_STYLE_IDS,
 } from '@/assets/prompt-templates'
+import { PORTRAIT_TEMPLATES } from '@/defaults/prompt-templates'
 import { DEFAULT_TEMPLATES } from '@/defaults/templates'
 import {
   extractPromptTemplateVariableKeys,
@@ -15,12 +16,25 @@ import {
 } from '@/services/promptTemplates'
 
 describe('complete prompt templates', () => {
-  it('defines 24 valid built-in templates across all creative categories', () => {
-    expect(DEFAULT_TEMPLATES).toHaveLength(24)
-    expect(new Set(DEFAULT_TEMPLATES.map(template => template.id)).size).toBe(24)
+  it('defines 88 valid built-in templates across all creative categories', () => {
+    expect(DEFAULT_TEMPLATES).toHaveLength(88)
+    expect(new Set(DEFAULT_TEMPLATES.map(template => template.id)).size).toBe(88)
+    expect(DEFAULT_TEMPLATES.map(template => template.id)).toEqual(
+      Array.from({ length: 88 }, (_, templateIndex) => `tpl-${templateIndex + 1}`),
+    )
 
     for (const category of PROMPT_TEMPLATE_CATEGORIES) {
-      expect(DEFAULT_TEMPLATES.filter(template => template.categoryId === category.id)).toHaveLength(3)
+      const categoryTemplates = DEFAULT_TEMPLATES.filter(template => (
+        template.categoryId === category.id
+      ))
+      const expectedTemplateCount = category.id === 'portrait-photography' ? 24 : 8
+      expect(categoryTemplates).toHaveLength(expectedTemplateCount)
+      const expectedMediumIds = category.id === 'portrait-photography'
+        ? ['photography']
+        : PROMPT_TEMPLATE_MEDIUM_IDS
+      expect(new Set(categoryTemplates.map(template => template.medium))).toEqual(
+        new Set(expectedMediumIds),
+      )
     }
 
     for (const template of DEFAULT_TEMPLATES) {
@@ -35,6 +49,20 @@ describe('complete prompt templates', () => {
       expect(template.variables.length).toBeGreaterThanOrEqual(2)
       expect(template.variables.length).toBeLessThanOrEqual(5)
     }
+  })
+
+  it('provides a rich and varied portrait photography collection', () => {
+    expect(PORTRAIT_TEMPLATES).toHaveLength(24)
+    expect(PORTRAIT_TEMPLATES.every(template => (
+      template.title.includes('写真')
+      && template.categoryId === 'portrait-photography'
+      && template.medium === 'photography'
+    ))).toBe(true)
+
+    const portraitStyleIds = new Set(
+      PORTRAIT_TEMPLATES.flatMap(template => template.styleIds),
+    )
+    expect(portraitStyleIds.size).toBeGreaterThanOrEqual(10)
   })
 
   it('keeps template placeholders and variable definitions in exact agreement', () => {

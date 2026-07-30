@@ -3,10 +3,6 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   PROMPT_TEMPLATE_CATEGORIES,
-  PROMPT_TEMPLATE_CATEGORY_BY_ID,
-  PROMPT_TEMPLATE_MEDIA,
-  PROMPT_TEMPLATE_MEDIUM_BY_ID,
-  PROMPT_TEMPLATE_STYLE_BY_ID,
 } from '@/assets/prompt-templates'
 import { PROMPT_TAXONOMY_CHOICE_COUNT } from '@/assets/prompt-taxonomy'
 import PromptTaxonomySelector from '@/components/prompt-composer/PromptTaxonomySelector.vue'
@@ -16,6 +12,14 @@ import {
   composePrompt,
   createPromptCompositionInput,
 } from '@/services/promptComposition'
+import {
+  getPromptTemplateVisualPreferenceScore,
+  PROMPT_TEMPLATE_VISUAL_PREFERENCES,
+  queryPromptTemplateLibrary,
+  type PromptTemplateLibraryScope,
+  type PromptTemplateLibrarySortMode,
+  type PromptTemplateVisualPreferenceId,
+} from '@/services/promptTemplateLibrary'
 import {
   clearPromptTaxonomyDomain,
   clearPromptTaxonomyGroup,
@@ -27,11 +31,7 @@ import {
 import { usePromptModuleStore } from '@/stores/promptModules'
 import { useTemplateStore } from '@/stores/templates'
 import { useUiStore } from '@/stores/ui'
-import type {
-  PromptTemplate,
-  PromptTemplateCategoryId,
-  PromptTemplateMedium,
-} from '@/types'
+import type { PromptTemplate } from '@/types'
 
 const ui = useUiStore()
 const templateStore = useTemplateStore()
@@ -149,57 +149,60 @@ async function useComposedPrompt() {
   ui.showToast('模块化提示词已带入直接创作')
 }
 
-type TemplateScopeFilter = 'all' | 'user' | PromptTemplateCategoryId
-type TemplateSortMode = 'recommended' | 'most-used'
-
 const templateSearch = ref('')
-const templateScopeFilter = ref<TemplateScopeFilter>('all')
-const templateMediumFilter = ref<'all' | PromptTemplateMedium>('all')
-const templateSortMode = ref<TemplateSortMode>('recommended')
+const templateScopeFilter = ref<PromptTemplateLibraryScope>('all')
+const selectedTemplatePreferenceIds = ref<PromptTemplateVisualPreferenceId[]>([])
+const templateSortMode = ref<PromptTemplateLibrarySortMode>('recommended')
 
 const fillTarget = ref<PromptTemplate | null>(null)
 const templateFiltersAreActive = computed(() => (
   templateSearch.value.trim().length > 0
   || templateScopeFilter.value !== 'all'
-  || templateMediumFilter.value !== 'all'
+  || selectedTemplatePreferenceIds.value.length > 0
   || templateSortMode.value !== 'recommended'
 ))
 
-const shownTemplates = computed(() => {
-  const normalizedSearch = templateSearch.value.trim().toLocaleLowerCase()
-  const filteredTemplates = templateStore.templates.filter((template) => {
-    const matchesScope = templateScopeFilter.value === 'all'
-      || (templateScopeFilter.value === 'user' && template.origin === 'user')
-      || template.categoryId === templateScopeFilter.value
-    const matchesMedium = templateMediumFilter.value === 'all'
-      || template.medium === templateMediumFilter.value
-    if (!matchesScope || !matchesMedium) return false
-    if (!normalizedSearch) return true
+const shownTemplates = computed(() => queryPromptTemplateLibrary(
+  templateStore.templates,
+  {
+    scope: templateScopeFilter.value,
+    search: templateSearch.value,
+    visualPreferenceIds: selectedTemplatePreferenceIds.value,
+    sortMode: templateSortMode.value,
+  },
+))
+const templatePreferenceMatchCounts = computed(() => new Map(
+  PROMPT_TEMPLATE_VISUAL_PREFERENCES.map(preference => [
+    preference.id,
+    shownTemplates.value.filter(template => (
+      getPromptTemplateVisualPreferenceScore(template, [preference.id]) > 0
+    )).length,
+  ]),
+))
+const preferredTemplateCount = computed(() => shownTemplates.value.filter(template => (
+  getPromptTemplateVisualPreferenceScore(
+    template,
+    selectedTemplatePreferenceIds.value,
+  ) > 0
+)).length)
 
-    const categoryLabel = template.categoryId
-      ? PROMPT_TEMPLATE_CATEGORY_BY_ID.get(template.categoryId)?.label ?? ''
-      : '未分类'
-    const mediumLabel = template.medium
-      ? PROMPT_TEMPLATE_MEDIUM_BY_ID.get(template.medium)?.label ?? ''
-      : '媒介未指定'
-    const styleLabels = template.styleIds.map(styleId => (
-      PROMPT_TEMPLATE_STYLE_BY_ID.get(styleId)?.label ?? ''
-    ))
-    return [
-      template.title,
-      template.summary,
-      template.content,
-      categoryLabel,
-      mediumLabel,
-      ...styleLabels,
-    ].some(searchableText => searchableText.toLocaleLowerCase().includes(normalizedSearch))
-  })
+function toggleTemplateVisualPreference(preferenceId: PromptTemplateVisualPreferenceId) {
+  if (selectedTemplatePreferenceIds.value.includes(preferenceId)) {
+    selectedTemplatePreferenceIds.value = selectedTemplatePreferenceIds.value.filter(
+      selectedPreferenceId => selectedPreferenceId !== preferenceId,
+    )
+    return
+  }
 
-  if (templateSortMode.value === 'recommended') return filteredTemplates
-  return [...filteredTemplates].sort((firstTemplate, secondTemplate) => (
-    secondTemplate.useCount - firstTemplate.useCount
-  ))
-})
+  selectedTemplatePreferenceIds.value = [
+    ...selectedTemplatePreferenceIds.value,
+    preferenceId,
+  ]
+}
+
+function clearTemplateVisualPreferences() {
+  selectedTemplatePreferenceIds.value = []
+}
 
 function useTemplate(template: PromptTemplate) {
   fillTarget.value = template
@@ -208,7 +211,7 @@ function useTemplate(template: PromptTemplate) {
 function resetTemplateFilters() {
   templateSearch.value = ''
   templateScopeFilter.value = 'all'
-  templateMediumFilter.value = 'all'
+  clearTemplateVisualPreferences()
   templateSortMode.value = 'recommended'
 }
 
@@ -266,7 +269,9 @@ onBeforeUnmount(() => {
                 {{ PROMPT_TAXONOMY_CHOICE_COUNT }} 个分级选项 · 条件展开 · 不自动搭配
               </template>
               <template v-else>
-                {{ templateStore.templates.length }} 条模板 · 8 个创作方向 · 4 种表现媒介
+                {{ templateStore.templates.length }} 条模板 ·
+                {{ PROMPT_TEMPLATE_CATEGORIES.length }} 个创作方向 ·
+                {{ PROMPT_TEMPLATE_VISUAL_PREFERENCES.length }} 个视觉取向
               </template>
             </span>
           </div>
@@ -291,7 +296,7 @@ onBeforeUnmount(() => {
               v-model="templateSearch"
               type="search"
               class="input w-full !py-2.5 !pl-9 !pr-9"
-              placeholder="搜索标题、用途或风格"
+              placeholder="搜索标题、用途、媒介或风格"
               aria-label="搜索完整提示词"
             />
             <button
@@ -463,30 +468,56 @@ onBeforeUnmount(() => {
             >我的</button>
           </div>
 
-          <div class="grid gap-3 border-t border-line pt-3 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-center">
-            <div class="flex flex-wrap items-center gap-1.5">
-              <span class="mr-1 text-[10px] font-semibold text-fade">表现媒介</span>
+          <div class="border-t border-line pt-3">
+            <div class="mb-2.5 flex flex-wrap items-center justify-between gap-2">
+              <div class="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                <span class="text-[10px] font-semibold text-fade">视觉取向</span>
+                <span class="text-[9.5px] text-dim">可多选，只调整推荐顺序，不隐藏模板</span>
+              </div>
               <button
-                class="chip"
-                :class="{ on: templateMediumFilter === 'all' }"
-                :aria-pressed="templateMediumFilter === 'all'"
-                @click="templateMediumFilter = 'all'"
-              >全部媒介</button>
-              <button
-                v-for="medium in PROMPT_TEMPLATE_MEDIA"
-                :key="medium.id"
-                class="chip"
-                :class="{ on: templateMediumFilter === medium.id }"
-                :aria-pressed="templateMediumFilter === medium.id"
-                :title="medium.description"
-                @click="templateMediumFilter = medium.id"
-              >{{ medium.label }}</button>
+                v-if="selectedTemplatePreferenceIds.length"
+                class="text-[9.5px] text-dim transition-colors hover:text-paper focus-visible:text-paper"
+                @click="clearTemplateVisualPreferences"
+              >清除偏好</button>
             </div>
 
-            <div class="flex flex-wrap items-center gap-2 xl:justify-end">
-              <span class="font-mono text-[9.5px] text-dim">
+            <div class="flex flex-wrap items-center gap-1.5">
+              <button
+                class="chip"
+                :class="{ on: !selectedTemplatePreferenceIds.length }"
+                :aria-pressed="!selectedTemplatePreferenceIds.length"
+                @click="clearTemplateVisualPreferences"
+              >默认推荐</button>
+              <button
+                v-for="preference in PROMPT_TEMPLATE_VISUAL_PREFERENCES"
+                :key="preference.id"
+                class="chip template-preference-chip"
+                :class="{ on: selectedTemplatePreferenceIds.includes(preference.id) }"
+                :aria-pressed="selectedTemplatePreferenceIds.includes(preference.id)"
+                :aria-label="`${preference.label}，当前范围 ${templatePreferenceMatchCounts.get(preference.id) ?? 0} 条相关模板`"
+                :title="preference.description"
+                @click="toggleTemplateVisualPreference(preference.id)"
+              >
+                <span>{{ preference.label }}</span>
+                <small>{{ templatePreferenceMatchCounts.get(preference.id) ?? 0 }}</small>
+              </button>
+            </div>
+          </div>
+
+          <div class="flex flex-wrap items-center justify-between gap-2 border-t border-line pt-3">
+            <span class="font-mono text-[9.5px] text-dim">
+              <template v-if="selectedTemplatePreferenceIds.length && preferredTemplateCount">
+                {{ preferredTemplateCount }} 条相关模板优先 ·
+                {{ shownTemplates.length - preferredTemplateCount }} 条仍保留
+              </template>
+              <template v-else-if="selectedTemplatePreferenceIds.length">
+                当前范围暂无直接匹配 · 仍保留 {{ shownTemplates.length }} 条
+              </template>
+              <template v-else>
                 显示 {{ shownTemplates.length }} / {{ templateStore.templates.length }}
-              </span>
+              </template>
+            </span>
+            <div class="flex flex-wrap items-center gap-2">
               <select v-model="templateSortMode" class="input !w-auto !py-1.5" aria-label="完整提示词排序">
                 <option value="recommended">推荐顺序</option>
                 <option value="most-used">最常使用</option>
@@ -515,7 +546,7 @@ onBeforeUnmount(() => {
           class="rounded-2xl border border-dashed border-line2 bg-well/45 px-5 py-12 text-center"
         >
           <p class="text-[13px] font-semibold">没有找到相关模板</p>
-          <p class="mt-1 text-[11px] text-dim">尝试缩短搜索词，或清除创作方向和表现媒介筛选。</p>
+          <p class="mt-1 text-[11px] text-dim">尝试缩短搜索词，或清除创作方向筛选。</p>
           <button class="btn mt-4 !py-1.5 text-[11px]" @click="resetTemplateFilters">重置筛选</button>
         </section>
       </div>
@@ -553,6 +584,22 @@ onBeforeUnmount(() => {
   color: var(--color-paper);
 }
 input[type='search']::-webkit-search-cancel-button { display: none; }
+.template-preference-chip small {
+  display: inline-grid;
+  min-width: 16px;
+  height: 16px;
+  place-items: center;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-paper) 6%, transparent);
+  padding: 0 4px;
+  font-family: var(--font-mono);
+  font-size: 8px;
+  color: var(--color-dim);
+}
+.template-preference-chip.on small {
+  background: color-mix(in srgb, var(--color-accent) 13%, transparent);
+  color: var(--color-accenthi);
+}
 .template-header-search-enter-active,
 .template-header-search-leave-active {
   transition:

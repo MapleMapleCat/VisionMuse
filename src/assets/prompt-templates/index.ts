@@ -10,10 +10,11 @@ export interface PromptTemplateTaxonomyItem<Value extends string> {
   description: string
 }
 
-export const PROMPT_TEMPLATE_SCHEMA_VERSION = 2
+export const PROMPT_TEMPLATE_SCHEMA_VERSION = 3
 
 export const PROMPT_TEMPLATE_CATEGORIES: PromptTemplateTaxonomyItem<PromptTemplateCategoryId>[] = [
-  { id: 'people-characters', label: '人物与角色', description: '肖像、写真、时尚与角色设定' },
+  { id: 'people-characters', label: '人物与角色', description: '角色设定、职业肖像、时尚造型与人物主视觉' },
+  { id: 'portrait-photography', label: '写真摄影', description: '生活、棚拍、旅拍、家庭与艺术人像摄影' },
   { id: 'products-brands', label: '商品与品牌', description: '产品广告、电商与品牌主视觉' },
   { id: 'food-still-life', label: '美食与静物', description: '食物、饮品、器物与静物创作' },
   { id: 'spaces-architecture', label: '空间与建筑', description: '室内、建筑、城市与微缩空间' },
