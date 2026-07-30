@@ -30,9 +30,132 @@ const dimensionsMismatch = computed(() => Boolean(
 const tagInput = ref('')
 const drawerEl = ref<HTMLElement>()
 const lightboxCloseButton = ref<HTMLButtonElement>()
+const lightboxImage = ref<HTMLImageElement>()
 const viewerImageButton = ref<HTMLButtonElement>()
+const lightboxZoom = ref(1)
+const lightboxTransformOrigin = ref('50% 50%')
+const lightboxHorizontalOffset = ref(0)
+const lightboxVerticalOffset = ref(0)
+const isLightboxDragging = ref(false)
+const maximumLightboxZoom = 4
+const lightboxSingleClickDelayMilliseconds = 140
+const lightboxDragThresholdPixels = 4
+const canZoomInLightbox = computed(() => lightboxZoom.value < maximumLightboxZoom)
 let previousFocus: HTMLElement | null = null
 let previousBodyOverflow = ''
+let pendingLightboxClickTimeout: number | undefined
+let activeLightboxPointerId: number | undefined
+let lightboxDragStartClientX = 0
+let lightboxDragStartClientY = 0
+let lightboxDragStartHorizontalOffset = 0
+let lightboxDragStartVerticalOffset = 0
+let hasLightboxDragMoved = false
+let shouldSuppressNextLightboxClick = false
+
+function cancelPendingLightboxClick() {
+  if (pendingLightboxClickTimeout === undefined) return
+  window.clearTimeout(pendingLightboxClickTimeout)
+  pendingLightboxClickTimeout = undefined
+}
+
+function resetLightboxZoom() {
+  cancelPendingLightboxClick()
+  lightboxZoom.value = 1
+  lightboxTransformOrigin.value = '50% 50%'
+  lightboxHorizontalOffset.value = 0
+  lightboxVerticalOffset.value = 0
+  activeLightboxPointerId = undefined
+  isLightboxDragging.value = false
+  hasLightboxDragMoved = false
+  shouldSuppressNextLightboxClick = false
+}
+
+function zoomInLightboxAt(clientX: number, clientY: number) {
+  if (!canZoomInLightbox.value) return
+
+  if (lightboxZoom.value === 1 && lightboxImage.value) {
+    const imageBounds = lightboxImage.value.getBoundingClientRect()
+    if (imageBounds.width > 0 && imageBounds.height > 0) {
+      const horizontalOrigin = Math.min(Math.max(clientX - imageBounds.left, 0), imageBounds.width)
+      const verticalOrigin = Math.min(Math.max(clientY - imageBounds.top, 0), imageBounds.height)
+      lightboxTransformOrigin.value = `${(horizontalOrigin / imageBounds.width) * 100}% ${(verticalOrigin / imageBounds.height) * 100}%`
+    }
+  }
+
+  lightboxZoom.value = Math.min(lightboxZoom.value + 1, maximumLightboxZoom)
+}
+
+function scheduleLightboxZoomIn(event: MouseEvent) {
+  if (shouldSuppressNextLightboxClick) {
+    shouldSuppressNextLightboxClick = false
+    return
+  }
+
+  cancelPendingLightboxClick()
+  const { clientX, clientY } = event
+  pendingLightboxClickTimeout = window.setTimeout(() => {
+    pendingLightboxClickTimeout = undefined
+    zoomInLightboxAt(clientX, clientY)
+  }, lightboxSingleClickDelayMilliseconds)
+}
+
+function zoomOutLightbox() {
+  cancelPendingLightboxClick()
+  const nextLightboxZoom = Math.max(lightboxZoom.value - 1, 1)
+  if (lightboxZoom.value > 1 && nextLightboxZoom === 1) {
+    lightboxHorizontalOffset.value = 0
+    lightboxVerticalOffset.value = 0
+    lightboxTransformOrigin.value = '50% 50%'
+  }
+  lightboxZoom.value = nextLightboxZoom
+}
+
+function startLightboxDrag(event: PointerEvent) {
+  if (!event.isPrimary || event.button !== 0) return
+
+  cancelPendingLightboxClick()
+  activeLightboxPointerId = event.pointerId
+  lightboxDragStartClientX = event.clientX
+  lightboxDragStartClientY = event.clientY
+  lightboxDragStartHorizontalOffset = lightboxHorizontalOffset.value
+  lightboxDragStartVerticalOffset = lightboxVerticalOffset.value
+  hasLightboxDragMoved = false
+  isLightboxDragging.value = true
+  if (event.currentTarget instanceof HTMLElement) {
+    event.currentTarget.setPointerCapture(event.pointerId)
+  }
+}
+
+function moveLightboxDrag(event: PointerEvent) {
+  if (event.pointerId !== activeLightboxPointerId) return
+
+  const horizontalDistance = event.clientX - lightboxDragStartClientX
+  const verticalDistance = event.clientY - lightboxDragStartClientY
+  if (!hasLightboxDragMoved && Math.hypot(horizontalDistance, verticalDistance) < lightboxDragThresholdPixels) return
+
+  hasLightboxDragMoved = true
+  lightboxHorizontalOffset.value = lightboxDragStartHorizontalOffset + horizontalDistance
+  lightboxVerticalOffset.value = lightboxDragStartVerticalOffset + verticalDistance
+}
+
+function finishLightboxDrag(event: PointerEvent) {
+  if (event.pointerId !== activeLightboxPointerId) return
+
+  if (hasLightboxDragMoved) shouldSuppressNextLightboxClick = true
+  if (event.currentTarget instanceof HTMLElement && event.currentTarget.hasPointerCapture(event.pointerId)) {
+    event.currentTarget.releasePointerCapture(event.pointerId)
+  }
+  activeLightboxPointerId = undefined
+  isLightboxDragging.value = false
+  hasLightboxDragMoved = false
+}
+
+function cancelLightboxDrag(event: PointerEvent) {
+  if (event.pointerId !== activeLightboxPointerId) return
+  activeLightboxPointerId = undefined
+  isLightboxDragging.value = false
+  hasLightboxDragMoved = false
+}
 
 function trapFocus(event: KeyboardEvent) {
   if (ui.lightbox) {
@@ -80,6 +203,7 @@ function onKey(e: KeyboardEvent) {
 onMounted(() => window.addEventListener('keydown', onKey))
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKey)
+  cancelPendingLightboxClick()
   document.body.style.overflow = previousBodyOverflow
   previousFocus?.focus()
 })
@@ -104,11 +228,14 @@ watch(
 watch(
   () => ui.lightbox,
   async open => {
+    if (open) resetLightboxZoom()
+    else cancelPendingLightboxClick()
     await nextTick()
     if (open) lightboxCloseButton.value?.focus()
     else if (rec.value) viewerImageButton.value?.focus()
   },
 )
+watch(() => rec.value?.id, resetLightboxZoom)
 
 function copyPrompt() {
   if (!rec.value) return
@@ -328,20 +455,37 @@ const dateText = computed(() => {
       aria-modal="true"
       aria-label="全屏图片预览"
       tabindex="-1"
-      class="fade-in fixed inset-0 z-50 flex cursor-zoom-out items-center justify-center bg-paper/95"
-      @click="ui.lightbox = false"
+      class="fade-in fixed inset-0 z-50 flex touch-none select-none items-center justify-center overflow-hidden bg-paper/95"
+      :class="isLightboxDragging ? 'cursor-grabbing' : 'cursor-grab'"
+      @click="scheduleLightboxZoomIn"
+      @dblclick.prevent="zoomOutLightbox"
+      @pointerdown="startLightboxDrag"
+      @pointermove="moveLightboxDrag"
+      @pointerup="finishLightboxDrag"
+      @pointercancel="cancelLightboxDrag"
     >
       <button
         ref="lightboxCloseButton"
         class="absolute right-4 top-4 z-10 flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white/75 backdrop-blur transition hover:bg-white/20 hover:text-white"
         aria-label="关闭全屏预览"
+        @pointerdown.stop
         @click.stop="ui.lightbox = false"
       >
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 6l12 12M18 6 6 18" /></svg>
       </button>
-      <img :src="rec.dataUrl" :alt="rec.prompt" class="pop-in max-h-full max-w-full object-contain" />
-      <span class="absolute bottom-4 left-1/2 -translate-x-1/2 rounded-lg bg-white/10 px-3 py-1 font-mono text-[11px] text-white/70">
-        {{ rec.width }} × {{ rec.height }} · 点击任意处退出
+      <img
+        ref="lightboxImage"
+        :src="rec.dataUrl"
+        :alt="rec.prompt"
+        class="pointer-events-none max-h-full max-w-full select-none object-contain will-change-transform"
+        :class="{ 'transition-transform duration-300 ease-out': !isLightboxDragging }"
+        :style="{
+          transform: `translate3d(${lightboxHorizontalOffset}px, ${lightboxVerticalOffset}px, 0) scale(${lightboxZoom})`,
+          transformOrigin: lightboxTransformOrigin,
+        }"
+      />
+      <span class="pointer-events-none absolute bottom-4 left-1/2 -translate-x-1/2 rounded-lg bg-white/10 px-3 py-1 font-mono text-[11px] text-white/70">
+        {{ rec.width }} × {{ rec.height }} · 拖动查看 · {{ canZoomInLightbox ? '单击放大' : '已达最大倍率' }} · 快速双击缩小 · {{ lightboxZoom }}× · Esc 退出
       </span>
     </div>
   </Teleport>
