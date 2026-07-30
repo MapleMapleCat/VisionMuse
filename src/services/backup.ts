@@ -227,13 +227,13 @@ function validateBackupManifest(value: unknown): asserts value is BackupManifest
   }
 
   if (value.version === 2) {
-    if (!Array.isArray(value.promptModules)) throw new Error('备份缺少提示词模块列表')
+    if (!Array.isArray(value.promptModules)) throw new Error('备份缺少提示词构建数据')
     for (const promptModule of value.promptModules) {
       if (!isRecord(promptModule) || typeof promptModule.id !== 'string'
         || typeof promptModule.title !== 'string' || typeof promptModule.content !== 'string'
         || !PROMPT_MODULE_CATEGORY_KEYS.some(category => category === promptModule.category)
         || typeof promptModule.useCount !== 'number' || typeof promptModule.sortOrder !== 'number') {
-        throw new Error('备份中包含无效提示词模块')
+        throw new Error('备份中包含无效的提示词构建数据')
       }
     }
   }

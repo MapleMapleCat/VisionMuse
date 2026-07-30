@@ -17,12 +17,12 @@ const items = computed(() => [
   },
   {
     path: '/prompt-modules',
-    label: '提示词模块',
+    label: '提示词构建',
     icon: 'M4 4h6v6H4V4Zm10 0h6v6h-6V4ZM4 14h6v6H4v-6Zm10 0h6v6h-6v-6Z',
   },
   {
     path: '/prompts',
-    label: '完整提示词',
+    label: '成品模板',
     icon: 'M7 8h10M7 12h6m-6 4h8M5 4h14a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1Z',
   },
   {

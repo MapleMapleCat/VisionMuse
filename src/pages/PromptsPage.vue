@@ -137,7 +137,7 @@ async function copyComposedPrompt() {
     return
   }
   await navigator.clipboard.writeText(composedPrompt.value)
-  ui.showToast('模块化提示词已复制')
+  ui.showToast('构建结果已复制')
 }
 
 async function useComposedPrompt() {
@@ -150,7 +150,7 @@ async function useComposedPrompt() {
   ui.draftPrompt = composedPrompt.value
   ui.dockOpen = true
   await router.push('/gallery')
-  ui.showToast('模块化提示词已带入直接创作')
+  ui.showToast('构建结果已带入直接创作')
 }
 
 const templateSearch = ref('')
@@ -221,7 +221,7 @@ function resetTemplateFilters() {
 
 async function copyFinalTemplatePrompt(content: string) {
   await navigator.clipboard.writeText(content)
-  ui.showToast('完整提示词已复制')
+  ui.showToast('成品模板已复制')
   fillTarget.value = null
 }
 
@@ -231,7 +231,7 @@ async function useFinalTemplatePrompt(template: PromptTemplate, content: string)
   ui.dockOpen = true
   fillTarget.value = null
   await router.push('/gallery')
-  ui.showToast('完整提示词已带入直接创作')
+  ui.showToast('成品模板已带入直接创作')
 }
 
 function useFilledTemplatePrompt(content: string) {
@@ -263,10 +263,10 @@ onBeforeUnmount(() => {
     <header class="border-b border-line bg-ink/90 px-6 pb-4 pt-5 backdrop-blur">
       <div class="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(280px,360px)] lg:items-center">
         <div>
-          <p class="field-label">{{ activeView === 'modules' ? 'Atomic prompt modules' : 'Complete prompt library' }}</p>
+          <p class="field-label">{{ activeView === 'modules' ? 'Prompt builder' : 'Ready-made prompt templates' }}</p>
           <div class="mt-1.5 flex flex-wrap items-end gap-3">
             <h1 class="display text-[27px] leading-none">
-              {{ activeView === 'modules' ? '提示词模块' : '完整提示词' }}
+              {{ activeView === 'modules' ? '提示词构建' : '成品模板' }}
             </h1>
             <span class="pb-0.5 font-mono text-[10.5px] text-dim">
               <template v-if="activeView === 'modules'">
@@ -301,12 +301,12 @@ onBeforeUnmount(() => {
               type="search"
               class="input w-full !py-2.5 !pl-9 !pr-9"
               placeholder="搜索标题、用途、媒介或风格"
-              aria-label="搜索完整提示词"
+              aria-label="搜索成品模板"
             />
             <button
               v-if="templateSearch"
               class="template-search-clear"
-              aria-label="清空完整提示词搜索"
+              aria-label="清空成品模板搜索"
               @click="templateSearch = ''"
             >
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
@@ -355,7 +355,7 @@ onBeforeUnmount(() => {
                     具体人物、对象或事件
                   </label>
                 </div>
-                <span class="core-content-badge">非模块</span>
+                <span class="core-content-badge">必填内容</span>
               </div>
               <input
                 id="prompt-core-content"
@@ -370,8 +370,8 @@ onBeforeUnmount(() => {
 
             <div class="mt-5 flex items-center justify-between gap-3">
               <div class="min-w-0">
-                <p class="field-label">Module track</p>
-                <h3 class="mt-1 text-[13px] font-semibold">选择的提示词片段</h3>
+                <p class="field-label">Selected elements</p>
+                <h3 class="mt-1 text-[13px] font-semibold">已选构建元素</h3>
               </div>
               <Transition name="composer-count" mode="out-in">
                 <span
@@ -404,7 +404,7 @@ onBeforeUnmount(() => {
                   key="empty"
                   class="selected-module-empty"
                 >
-                  尚未选择模块，从左侧分类中添加片段。
+                  尚未选择元素，请从左侧分类中添加。
                 </p>
               </TransitionGroup>
             </div>
@@ -510,7 +510,7 @@ onBeforeUnmount(() => {
               </template>
             </span>
             <div class="flex flex-wrap items-center gap-2">
-              <select v-model="templateSortMode" class="input !w-auto !py-1.5" aria-label="完整提示词排序">
+              <select v-model="templateSortMode" class="input !w-auto !py-1.5" aria-label="成品模板排序">
                 <option value="recommended">推荐顺序</option>
                 <option value="most-used">最常使用</option>
               </select>

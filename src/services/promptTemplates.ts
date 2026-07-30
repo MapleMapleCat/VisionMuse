@@ -101,7 +101,7 @@ export function normalizePromptTemplate(value: unknown): PromptTemplate | null {
     title: value.title.trim(),
     summary: typeof value.summary === 'string' && value.summary.trim()
       ? value.summary.trim()
-      : '用户保存的完整提示词。',
+      : '用户保存的成品模板。',
     content: value.content.trim(),
     categoryId: isPromptTemplateCategoryId(value.categoryId) ? value.categoryId : null,
     medium: isPromptTemplateMedium(value.medium) ? value.medium : null,
@@ -179,7 +179,7 @@ export function createUserPromptTemplate(prompt: string, id: string): PromptTemp
   return {
     id,
     title: normalizedPrompt.slice(0, 12) + (normalizedPrompt.length > 12 ? '…' : ''),
-    summary: '从生成历史保存的完整提示词。',
+    summary: '从生成历史保存的成品模板。',
     content: normalizedPrompt,
     categoryId: null,
     medium: null,
