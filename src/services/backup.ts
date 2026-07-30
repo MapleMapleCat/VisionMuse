@@ -1,4 +1,3 @@
-import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate'
 import type {
   AppSettings,
   GenerationTask,
@@ -9,11 +8,19 @@ import type {
   StoredImageRecord,
   StoredReferenceImage,
 } from '@/types'
-import { PROMPT_MODULE_CATEGORY_KEYS } from '@/types'
+import { MAX_REFERENCE_IMAGE_COUNT, PROMPT_MODULE_CATEGORY_KEYS } from '@/types'
 import { DEFAULT_PROMPT_MODULES } from '@/assets/prompt-modules'
 import { downloadBlob } from './download'
 import { cloneForStorage } from './clone'
 import { normalizePromptTemplates } from './promptTemplates'
+import { validateImageResource } from './imageAssets'
+import { createStoredZip, extractZipEntries, type ArchiveEntrySource } from './archive'
+import { MEDIA_LIMITS } from './resourceLimits'
+import {
+  parseApiRequestConfig,
+  parseAppSettings,
+  parseGenerationParameters,
+} from './settingsValidation'
 
 interface BackupReferenceImage extends Omit<StoredReferenceImage, 'blob'> {
   blobPath: string
@@ -75,7 +82,7 @@ export async function exportBackup(options: {
   templates: PromptTemplate[]
   promptModules: PromptModule[]
 }): Promise<void> {
-  const archiveFiles: Record<string, Uint8Array> = {}
+  const archiveSources: ArchiveEntrySource[] = []
   const tasks: BackupTask[] = []
   for (const task of options.tasks.map(toStoredTask)) {
     if (!task.referenceImages?.length) {
@@ -91,7 +98,7 @@ export async function exportBackup(options: {
     const referenceImages: BackupReferenceImage[] = []
     for (const [referenceIndex, referenceImage] of task.referenceImages.entries()) {
       const referencePath = `references/${task.id}/${referenceIndex}`
-      archiveFiles[referencePath] = new Uint8Array(await referenceImage.blob.arrayBuffer())
+      archiveSources.push({ path: referencePath, blob: referenceImage.blob })
       const { blob: _blob, ...referenceMetadata } = referenceImage
       referenceImages.push({ ...referenceMetadata, blobPath: referencePath })
     }
@@ -107,8 +114,8 @@ export async function exportBackup(options: {
   for (const image of options.images.map(toStoredImage)) {
     const originalBlobPath = `images/${image.id}/original`
     const thumbnailBlobPath = `images/${image.id}/thumbnail`
-    archiveFiles[originalBlobPath] = new Uint8Array(await image.originalBlob.arrayBuffer())
-    archiveFiles[thumbnailBlobPath] = new Uint8Array(await image.thumbnailBlob.arrayBuffer())
+    archiveSources.push({ path: originalBlobPath, blob: image.originalBlob })
+    archiveSources.push({ path: thumbnailBlobPath, blob: image.thumbnailBlob })
     const { originalBlob: _originalBlob, thumbnailBlob: _thumbnailBlob, ...imageMetadata } = image
     images.push({ ...imageMetadata, originalBlobPath, thumbnailBlobPath })
   }
@@ -123,22 +130,22 @@ export async function exportBackup(options: {
     templates: cloneForStorage(options.templates),
     promptModules: cloneForStorage(options.promptModules),
   }
-  archiveFiles['manifest.json'] = strToU8(JSON.stringify(manifest, null, 2))
-  const archive = zipSync(archiveFiles, { level: 0 })
+  archiveSources.push({
+    path: 'manifest.json',
+    blob: new Blob([JSON.stringify(manifest, null, 2)], { type: 'application/json' }),
+  })
+  const archive = await createStoredZip(
+    archiveSources,
+    MEDIA_LIMITS.maximumArchiveExportBytes,
+  )
   const date = new Date().toISOString().slice(0, 10)
-  downloadBlob(new Blob([archive], { type: 'application/zip' }), `vision-muse-backup-${date}.zip`)
+  downloadBlob(archive, `vision-muse-backup-${date}.zip`)
 }
 
-function requireArchiveFile(files: Record<string, Uint8Array>, path: string): Uint8Array {
-  const file = files[path]
+function requireArchiveFile(files: Map<string, Blob>, path: string): Blob {
+  const file = files.get(path)
   if (!file) throw new Error(`备份文件缺少资源：${path}`)
   return file
-}
-
-function copyToArrayBuffer(bytes: Uint8Array): ArrayBuffer {
-  const copy = new Uint8Array(bytes.byteLength)
-  copy.set(bytes)
-  return copy.buffer
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -150,7 +157,7 @@ function validateBackupManifest(value: unknown): asserts value is BackupManifest
     || (value.version !== 1 && value.version !== 2)) {
     throw new Error('不是受支持的 VisionMuse 备份文件')
   }
-  if (!isRecord(value.settings) || !isRecord(value.settings.api) || !isRecord(value.settings.defaultParams)) {
+  if (!isRecord(value.settings)) {
     throw new Error('备份中的设置结构无效')
   }
   if (!Array.isArray(value.tasks) || !Array.isArray(value.images) || !Array.isArray(value.templates)) {
@@ -171,6 +178,9 @@ function validateBackupManifest(value: unknown): asserts value is BackupManifest
       : task.referenceImage !== undefined ? [task.referenceImage] : []
     if (!Array.isArray(taskReferenceImages)) {
       throw new Error(`任务 ${task.id} 的参考图列表无效`)
+    }
+    if (taskReferenceImages.length > MAX_REFERENCE_IMAGE_COUNT) {
+      throw new Error(`任务 ${task.id} 的参考图超过 ${MAX_REFERENCE_IMAGE_COUNT} 张`)
     }
     for (const referenceImage of taskReferenceImages) {
       if (!isRecord(referenceImage) || typeof referenceImage.blobPath !== 'string'
@@ -236,15 +246,21 @@ export async function importBackup(file: File): Promise<{
   templates: PromptTemplate[]
   promptModules: PromptModule[]
 }> {
-  if (file.size > 1024 * 1024 * 1024) throw new Error('备份文件超过 1 GB，浏览器无法安全导入')
-  const files = unzipSync(new Uint8Array(await file.arrayBuffer()))
-  const expandedBytes = Object.values(files).reduce((total, bytes) => total + bytes.byteLength, 0)
-  if (expandedBytes > 2 * 1024 * 1024 * 1024) throw new Error('备份解压后超过 2 GB，已停止导入')
-  const manifestBytes = requireArchiveFile(files, 'manifest.json')
-  const manifest: unknown = JSON.parse(strFromU8(manifestBytes))
+  const files = await extractZipEntries(file)
+  const manifestFile = requireArchiveFile(files, 'manifest.json')
+  const manifest: unknown = JSON.parse(await manifestFile.text())
   validateBackupManifest(manifest)
 
-  const tasks: StoredGenerationTask[] = manifest.tasks.map(task => {
+  const validatedImagePaths = new Map<string, Promise<{ width: number; height: number }>>()
+  function validateArchivedImage(path: string): Promise<{ width: number; height: number }> {
+    const existingValidation = validatedImagePaths.get(path)
+    if (existingValidation) return existingValidation
+    const validation = validateImageResource(requireArchiveFile(files, path))
+    validatedImagePaths.set(path, validation)
+    return validation
+  }
+
+  const tasks: StoredGenerationTask[] = await Promise.all(manifest.tasks.map(async task => {
     const {
       referenceImage: legacyReferenceImage,
       referenceImages: archivedReferenceImages,
@@ -256,29 +272,36 @@ export async function importBackup(file: File): Promise<{
 
     return {
       ...taskMetadata,
-      referenceImages: normalizedReferenceImages.map(referenceImage => {
+      params: parseGenerationParameters(task.params, `任务 ${task.id} 的生成参数`),
+      apiConfig: parseApiRequestConfig(task.apiConfig, `任务 ${task.id} 的 API 配置`),
+      referenceImages: await Promise.all(normalizedReferenceImages.map(async referenceImage => {
         const { blobPath, ...referenceMetadata } = referenceImage
+        const dimensions = await validateArchivedImage(blobPath)
         return {
           ...referenceMetadata,
-          blob: new Blob(
-            [copyToArrayBuffer(requireArchiveFile(files, blobPath))],
-            { type: referenceMetadata.mimeType },
-          ),
+          ...dimensions,
+          blob: requireArchiveFile(files, blobPath).slice(0, undefined, referenceMetadata.mimeType),
         }
-      }),
+      })),
     }
-  })
-  const images: StoredImageRecord[] = manifest.images.map(image => {
+  }))
+  const images: StoredImageRecord[] = await Promise.all(manifest.images.map(async image => {
     const { originalBlobPath, thumbnailBlobPath, ...imageMetadata } = image
+    const [originalDimensions] = await Promise.all([
+      validateArchivedImage(originalBlobPath),
+      validateArchivedImage(thumbnailBlobPath),
+    ])
     return {
       ...imageMetadata,
-      originalBlob: new Blob([copyToArrayBuffer(requireArchiveFile(files, originalBlobPath))], { type: image.mimeType }),
-      thumbnailBlob: new Blob([copyToArrayBuffer(requireArchiveFile(files, thumbnailBlobPath))], { type: 'image/webp' }),
+      ...originalDimensions,
+      params: parseGenerationParameters(image.params, `图片 ${image.id} 的生成参数`),
+      originalBlob: requireArchiveFile(files, originalBlobPath).slice(0, undefined, image.mimeType),
+      thumbnailBlob: requireArchiveFile(files, thumbnailBlobPath).slice(0, undefined, 'image/webp'),
     }
-  })
+  }))
 
   return {
-    settings: manifest.settings,
+    settings: parseAppSettings(manifest.settings, '备份中的设置'),
     tasks,
     images,
     templates: normalizePromptTemplates(manifest.templates),

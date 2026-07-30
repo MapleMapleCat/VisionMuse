@@ -155,14 +155,6 @@ export const useGalleryStore = defineStore('gallery', () => {
     images.value = images.value.filter(i => !set.has(i.id))
   }
 
-  async function reload() {
-    for (const image of images.value) {
-      if (image.dataUrl.startsWith('blob:')) URL.revokeObjectURL(image.dataUrl)
-    }
-    images.value = (await loadImages()).map(toRuntimeImage).sort((left, right) => right.createdAt - left.createdAt)
-    initialized.value = true
-  }
-
   const storageBytes = computed(() => images.value.reduce(
     (total, image) => total + image.originalBlob.size + (image.thumbnailBlob === image.originalBlob ? 0 : image.thumbnailBlob.size),
     0,
@@ -170,7 +162,7 @@ export const useGalleryStore = defineStore('gallery', () => {
 
   return {
     images, alive, trashed, allTags, initialized, storageBytes,
-    initialize, reload, addGeneratedImage, byId, siblings, toggleFavorite, setTags, addTagToMany,
+    initialize, addGeneratedImage, byId, siblings, toggleFavorite, setTags, addTagToMany,
     softDelete, restore, purge,
   }
 })

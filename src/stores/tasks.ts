@@ -5,6 +5,11 @@ import { estimateCost } from '@/types'
 import { deleteTask, loadTasks, saveTask } from '@/services/database'
 import { ImageApiError, requestImages } from '@/services/imageApi'
 import { cloneForStorage } from '@/services/clone'
+import {
+  normalizeApiSettings,
+  parseAppSettings,
+  parseGenerationParameters,
+} from '@/services/settingsValidation'
 import { createId } from '@/utils/ids'
 import { useGalleryStore } from './gallery'
 import { useSettingsStore } from './settings'
@@ -69,7 +74,9 @@ export const useTaskStore = defineStore('tasks', () => {
   async function submit(prompt: string, params: GenParams, referenceImages: ReferenceImage[] = []) {
     const settingsStore = useSettingsStore()
     if (!settingsStore.apiConfigured) throw new Error('请先在设置中填写文生图请求 URL')
-    const apiSettings = cloneForStorage(settingsStore.settings.api)
+    const currentSettings = parseAppSettings(settingsStore.settings)
+    const validatedParams = parseGenerationParameters(params)
+    const apiSettings = cloneForStorage(currentSettings.api)
     const { apiKey: _apiKey, ...apiConfig } = apiSettings
     const taskReferences = referenceImages.map(referenceImage => ({
       ...referenceImage,
@@ -80,13 +87,13 @@ export const useTaskStore = defineStore('tasks', () => {
       id: createId('task'),
       kind,
       prompt,
-      params: { ...params },
+      params: validatedParams,
       referenceImages: taskReferences,
       status: 'queued',
       requestEndpoint: kind === 'edit' ? apiSettings.edit.url : apiSettings.generation.url,
       model: apiSettings.model || 'custom',
       apiConfig,
-      estimatedCost: estimateCost(params, kind, settingsStore.settings.estimatedCostByQuality),
+      estimatedCost: estimateCost(validatedParams, kind, currentSettings.estimatedCostByQuality),
       createdAt: Date.now(),
       imageIds: [],
     }
@@ -97,7 +104,9 @@ export const useTaskStore = defineStore('tasks', () => {
   }
 
   function pump() {
-    const maximumConcurrent = useSettingsStore().settings.api.maxConcurrent
+    const maximumConcurrent = normalizeApiSettings(
+      useSettingsStore().settings.api,
+    ).maxConcurrent
     const running = tasks.value.filter(t => t.status === 'running').length
     const availableSlots = Math.max(0, maximumConcurrent - running)
     const queuedTasks = [...tasks.value].reverse().filter(task => task.status === 'queued').slice(0, availableSlots)

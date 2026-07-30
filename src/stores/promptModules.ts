@@ -3,7 +3,7 @@ import { ref } from 'vue'
 import { DEFAULT_PROMPT_MODULES } from '@/assets/prompt-modules'
 import { cloneForStorage } from '@/services/clone'
 import { loadPromptModules, savePromptModule, savePromptModules } from '@/services/database'
-import type { PromptModule, PromptModuleCategory } from '@/types'
+import type { PromptModule } from '@/types'
 
 export const usePromptModuleStore = defineStore('promptModules', () => {
   const promptModules = ref<PromptModule[]>([])
@@ -29,12 +29,6 @@ export const usePromptModuleStore = defineStore('promptModules', () => {
     initialized.value = true
   }
 
-  function getByCategory(category: PromptModuleCategory): PromptModule[] {
-    return promptModules.value
-      .filter(promptModule => promptModule.category === category)
-      .sort((firstModule, secondModule) => firstModule.sortOrder - secondModule.sortOrder)
-  }
-
   async function recordUses(selectedPromptModules: PromptModule[]) {
     await Promise.all(selectedPromptModules.map(async selectedPromptModule => {
       const storedPromptModule = promptModules.value.find(promptModule => (
@@ -46,5 +40,5 @@ export const usePromptModuleStore = defineStore('promptModules', () => {
     }))
   }
 
-  return { promptModules, initialized, initialize, getByCategory, recordUses }
+  return { promptModules, initialized, initialize, recordUses }
 })

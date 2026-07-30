@@ -32,8 +32,6 @@ export const PROMPT_MODULE_ASSETS: PromptModuleAssetDefinition[] = [
   detailAsset,
 ]
 
-export const PROMPT_MODULE_CATEGORIES = PROMPT_MODULE_ASSETS.map(asset => asset.category)
-
 export const DEFAULT_PROMPT_MODULES: PromptModule[] = PROMPT_MODULE_ASSETS.flatMap(asset => (
   asset.modules.map(moduleAsset => ({
     id: moduleAsset.id,

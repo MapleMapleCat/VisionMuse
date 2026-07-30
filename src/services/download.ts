@@ -1,5 +1,6 @@
-import { zipSync, strToU8 } from 'fflate'
 import type { ImageRecord } from '@/types'
+import { createStoredZip } from './archive'
+import { MEDIA_LIMITS } from './resourceLimits'
 
 export function downloadBlob(blob: Blob, fileName: string): void {
   const objectUrl = URL.createObjectURL(blob)
@@ -20,14 +21,13 @@ export function getImageFileName(image: ImageRecord, index?: number): string {
 }
 
 export async function downloadImagesAsZip(images: ImageRecord[], archiveName = 'vision-muse-images.zip'): Promise<void> {
-  const files: Record<string, Uint8Array> = {}
-  for (const [index, image] of images.entries()) {
-    files[getImageFileName(image, index)] = new Uint8Array(await image.originalBlob.arrayBuffer())
-  }
-  const archive = zipSync(files, { level: 0 })
-  downloadBlob(new Blob([archive], { type: 'application/zip' }), archiveName)
-}
-
-export function createJsonFile(value: unknown): Uint8Array {
-  return strToU8(JSON.stringify(value, null, 2))
+  const archiveSources = images.map((image, index) => ({
+    path: getImageFileName(image, index),
+    blob: image.originalBlob,
+  }))
+  const archive = await createStoredZip(
+    archiveSources,
+    MEDIA_LIMITS.maximumArchiveExportBytes,
+  )
+  downloadBlob(archive, archiveName)
 }

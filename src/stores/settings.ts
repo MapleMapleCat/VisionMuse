@@ -5,28 +5,14 @@ import { loadSettings, saveSettings } from '@/services/database'
 import { testApiConnection } from '@/services/imageApi'
 import type { AppSettings } from '@/types'
 import { cloneForStorage } from '@/services/clone'
+import { normalizeAppSettings, parseAppSettings, parseApiSettings } from '@/services/settingsValidation'
 
 function mergeSettings(savedSettings?: AppSettings): AppSettings {
-  const defaults = cloneDefaultSettings()
-  if (!savedSettings) return defaults
-  const savedEditSettings = { ...defaults.api.edit, ...savedSettings.api?.edit }
-  if (savedEditSettings.bodyTemplate === LEGACY_OPENAI_EDIT_BODY) {
-    savedEditSettings.bodyTemplate = defaults.api.edit.bodyTemplate
+  const normalizedSettings = normalizeAppSettings(savedSettings)
+  if (normalizedSettings.api.edit.bodyTemplate === LEGACY_OPENAI_EDIT_BODY) {
+    normalizedSettings.api.edit.bodyTemplate = cloneDefaultSettings().api.edit.bodyTemplate
   }
-
-  return {
-    ...defaults,
-    ...savedSettings,
-    api: {
-      ...defaults.api,
-      ...savedSettings.api,
-      generation: { ...defaults.api.generation, ...savedSettings.api?.generation },
-      edit: savedEditSettings,
-      response: { ...defaults.api.response, ...savedSettings.api?.response },
-    },
-    defaultParams: { ...defaults.defaultParams, ...savedSettings.defaultParams },
-    estimatedCostByQuality: { ...defaults.estimatedCostByQuality, ...savedSettings.estimatedCostByQuality },
-  }
+  return normalizedSettings
 }
 
 export const useSettingsStore = defineStore('settings', () => {
@@ -49,7 +35,13 @@ export const useSettingsStore = defineStore('settings', () => {
   }
 
   async function persist() {
-    const snapshot = cloneForStorage(settings.value)
+    let snapshot: AppSettings
+    try {
+      snapshot = cloneForStorage(parseAppSettings(settings.value))
+    } catch (error) {
+      saveError.value = error instanceof Error ? error.message : String(error)
+      throw error
+    }
     pendingSaves++
     saving.value = true
     const operation = saveQueue.then(() => saveSettings(snapshot))
@@ -80,7 +72,7 @@ export const useSettingsStore = defineStore('settings', () => {
   async function testConnection() {
     testing.value = true
     try {
-      await testApiConnection(settings.value.api)
+      await testApiConnection(parseApiSettings(settings.value.api))
     } finally {
       testing.value = false
     }

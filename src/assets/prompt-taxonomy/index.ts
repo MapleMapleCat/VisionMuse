@@ -24,8 +24,6 @@ export type {
   PromptTaxonomyIndex,
 } from './types'
 
-export const PROMPT_TAXONOMY_VERSION = 1
-
 export const PROMPT_TAXONOMY_DOMAINS: PromptTaxonomyDomainDefinition[] = [
   subjectDomain,
   performanceDomain,

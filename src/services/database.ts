@@ -121,10 +121,6 @@ export async function saveTemplates(templates: PromptTemplate[]): Promise<void> 
   await Promise.all([...templates.map(template => transaction.store.put(cloneForStorage(template))), transaction.done])
 }
 
-export async function deleteTemplate(templateId: string): Promise<void> {
-  await (await getDatabase()).delete('templates', templateId)
-}
-
 export async function loadPromptModules(): Promise<PromptModule[]> {
   return (await getDatabase()).getAll('promptModules')
 }

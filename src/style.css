@@ -4,7 +4,6 @@
   /* VisionMuse 工作室：亚麻暖灰 + 墨黑 + 深松石 */
   --color-ink: #EFEBE3;          /* 页面底：亚麻暖灰 */
   --color-well: #FBF9F4;         /* 卡片/输入底：奶白 */
-  --color-panel: #FBF9F4;
   --color-panel2: #E4DFD3;       /* 悬停/次级面板：深一档亚麻 */
   --color-line: #DCD6C8;         /* 分隔线 */
   --color-line2: #C9C2B0;        /* 强分隔线 */
@@ -20,7 +19,6 @@
   /* 兼容旧类名的别名（历史代码里 amber 系直接映射到强调色） */
   --color-amber: #1F6E62;
   --color-amberhi: #17554B;
-  --color-amberdeep: #9DC3B8;
 
   --font-sans: "Segoe UI", "Microsoft YaHei", "PingFang SC", "Noto Sans SC", system-ui, sans-serif;
   --font-serif: "Georgia", "Times New Roman", "STZhongsong", "SimSun", serif;
@@ -96,8 +94,6 @@ body::before {
 
 .pulse-soft { animation: pulse-soft 2.2s ease-in-out infinite; }
 @keyframes pulse-soft { 0%, 100% { opacity: 0.45; } 50% { opacity: 1; } }
-
-@keyframes spin { from { transform: rotate(0); } to { transform: rotate(360deg); } }
 
 .drawer-in { animation: drawer-in 0.32s var(--ease-out-soft) both; }
 @keyframes drawer-in { from { transform: translateX(48px); opacity: 0; } to { transform: none; opacity: 1; } }

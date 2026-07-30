@@ -59,4 +59,48 @@ describe('backup compatibility', () => {
       variables: [expect.objectContaining({ key: 'subject', required: true })],
     }))
   })
+
+  it('rejects invalid runtime settings before they can replace local data', async () => {
+    const invalidSettings = cloneDefaultSettings()
+    invalidSettings.api.maxConcurrent = 0
+    const invalidManifest = {
+      format: 'vision-muse-backup',
+      version: 1,
+      exportedAt: '2026-07-28T00:00:00.000Z',
+      settings: invalidSettings,
+      tasks: [],
+      images: [],
+      templates: [],
+    }
+    const archive = zipSync({
+      'manifest.json': strToU8(JSON.stringify(invalidManifest)),
+    })
+    const backupFile = new File([archive], 'vision-muse-invalid-settings.zip', {
+      type: 'application/zip',
+    })
+
+    await expect(importBackup(backupFile)).rejects.toThrow('maxConcurrent')
+  })
+
+  it('fills missing settings groups in partial legacy backups', async () => {
+    const partialManifest = {
+      format: 'vision-muse-backup',
+      version: 1,
+      exportedAt: '2026-07-28T00:00:00.000Z',
+      settings: {},
+      tasks: [],
+      images: [],
+      templates: [],
+    }
+    const archive = zipSync({
+      'manifest.json': strToU8(JSON.stringify(partialManifest)),
+    })
+    const backupFile = new File([archive], 'vision-muse-partial-settings.zip', {
+      type: 'application/zip',
+    })
+
+    const restoredBackup = await importBackup(backupFile)
+
+    expect(restoredBackup.settings).toEqual(cloneDefaultSettings())
+  })
 })

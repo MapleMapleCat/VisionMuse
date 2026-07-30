@@ -4,10 +4,10 @@ import {
   MAX_REFERENCE_IMAGE_COUNT,
   type GenParams,
   type ImageRecord,
-  type PromptTemplate,
   type ReferenceImage,
 } from '@/types'
 import { revokeReferenceImage } from '@/services/imageAssets'
+import { MEDIA_LIMITS, formatMegabytes } from '@/services/resourceLimits'
 import { useTemplateStore } from './templates'
 
 export const useUiStore = defineStore('ui', () => {
@@ -67,20 +67,11 @@ export const useUiStore = defineStore('ui', () => {
       width: rec.width,
       height: rec.height,
     }])
-    if (!addedReferenceCount) {
-      showToast(`最多添加 ${MAX_REFERENCE_IMAGE_COUNT} 张参考图`)
-      return false
-    }
+    if (!addedReferenceCount) return false
     draftParams.value = { ...rec.params, n: 1 }
     dockOpen.value = true
     closeViewer()
     return true
-  }
-
-  function useTemplate(tpl: PromptTemplate) {
-    void useTemplateStore().recordUse(tpl)
-    draftPrompt.value = tpl.content
-    dockOpen.value = true
   }
 
   async function saveAsTemplate(rec: ImageRecord) {
@@ -90,9 +81,32 @@ export const useUiStore = defineStore('ui', () => {
 
   function addReferenceImages(nextReferenceImages: ReferenceImage[]) {
     const availableReferenceSlots = MAX_REFERENCE_IMAGE_COUNT - referenceImages.value.length
-    const acceptedReferenceImages = nextReferenceImages.slice(0, availableReferenceSlots)
-    const rejectedReferenceImages = nextReferenceImages.slice(availableReferenceSlots)
+    let availableReferenceBytes = MEDIA_LIMITS.maximumReferenceImageTotalBytes
+      - referenceImages.value.reduce((totalBytes, referenceImage) => (
+        totalBytes + referenceImage.blob.size
+      ), 0)
+    const acceptedReferenceImages: ReferenceImage[] = []
+    const rejectedReferenceImages: ReferenceImage[] = []
+    let rejectedForTotalSize = false
+
+    for (const nextReferenceImage of nextReferenceImages) {
+      const hasAvailableSlot = acceptedReferenceImages.length < availableReferenceSlots
+      const fitsTotalSizeBudget = nextReferenceImage.blob.size <= availableReferenceBytes
+      if (hasAvailableSlot && fitsTotalSizeBudget) {
+        acceptedReferenceImages.push(nextReferenceImage)
+        availableReferenceBytes -= nextReferenceImage.blob.size
+      } else {
+        rejectedReferenceImages.push(nextReferenceImage)
+        if (hasAvailableSlot && !fitsTotalSizeBudget) rejectedForTotalSize = true
+      }
+    }
     for (const rejectedReferenceImage of rejectedReferenceImages) revokeReferenceImage(rejectedReferenceImage)
+
+    if (rejectedForTotalSize) {
+      showToast(`参考图总大小不能超过 ${formatMegabytes(MEDIA_LIMITS.maximumReferenceImageTotalBytes)}`)
+    } else if (rejectedReferenceImages.length) {
+      showToast(`最多添加 ${MAX_REFERENCE_IMAGE_COUNT} 张参考图`)
+    }
 
     referenceImages.value.push(...acceptedReferenceImages)
     if (acceptedReferenceImages.length) draftParams.value.n = 1
@@ -118,7 +132,7 @@ export const useUiStore = defineStore('ui', () => {
     dockOpen, draftPrompt, draftParams, referenceImages,
     viewerId, viewerList, lightbox, toast,
     showToast, openViewer, closeViewer, stepViewer,
-    remix, useAsReference, useTemplate, saveAsTemplate,
+    remix, useAsReference, saveAsTemplate,
     addReferenceImages, removeReferenceImage, clearReferenceImages,
     prepareReferenceImagesForSubmission,
   }

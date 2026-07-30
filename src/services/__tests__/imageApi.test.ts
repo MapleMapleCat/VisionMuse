@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cloneDefaultSettings } from '@/defaults/settings'
+import { MEDIA_LIMITS } from '@/services/resourceLimits'
 import { buildJsonRequestBody, buildMultipartRequestBody, requestImages } from '@/services/imageApi'
 
 describe('custom image API request templates', () => {
@@ -44,7 +45,7 @@ describe('custom image API request templates', () => {
 
   it('provides dimensions, aspect ratio, and resolution to request templates', async () => {
     vi.stubGlobal('window', globalThis)
-    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => new Response(JSON.stringify({
+    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => new Response(JSON.stringify({
       data: [{ b64_json: btoa('generated-image') }],
     }), { status: 200, headers: { 'content-type': 'application/json' } }))
     vi.stubGlobal('fetch', fetchMock)
@@ -202,5 +203,121 @@ describe('custom image API request templates', () => {
 
     expect(await result.images[0].blob.text()).toBe('scalar-image')
     expect(result.usage).toBeUndefined()
+  })
+
+  it('rejects response arrays that exceed the image count budget', async () => {
+    vi.stubGlobal('window', globalThis)
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
+      data: Array.from({ length: MEDIA_LIMITS.maximumApiResponseImageCount + 1 }, () => ({
+        b64_json: btoa('generated-image'),
+      })),
+    }), { status: 200, headers: { 'content-type': 'application/json' } })))
+
+    await expect(requestImages({
+      settings: cloneDefaultSettings().api,
+      prompt: 'too many outputs',
+      params: { size: '1024x1024', quality: 'medium', format: 'png', n: 4 },
+    })).rejects.toThrow('单次最多接收')
+  })
+
+  it('rejects oversized direct image responses from Content-Length before reading the body', async () => {
+    vi.stubGlobal('window', globalThis)
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('small-placeholder', {
+      status: 200,
+      headers: {
+        'content-type': 'image/png',
+        'content-length': String(MEDIA_LIMITS.maximumApiResponseImageBytes + 1),
+      },
+    })))
+
+    await expect(requestImages({
+      settings: cloneDefaultSettings().api,
+      prompt: 'oversized response',
+      params: { size: '1024x1024', quality: 'medium', format: 'png', n: 1 },
+    })).rejects.toThrow('接口图片响应超过')
+  })
+
+  it('rejects Base64 reference inputs over their cumulative budget before conversion', async () => {
+    vi.stubGlobal('window', globalThis)
+    const firstReferenceBlob = new Blob(['first-placeholder'], { type: 'image/png' })
+    const secondReferenceBlob = new Blob(['second-placeholder'], { type: 'image/png' })
+    const referenceBlobBytes = Math.floor(MEDIA_LIMITS.maximumBase64ReferenceTotalBytes / 2) + 1
+    Object.defineProperty(firstReferenceBlob, 'size', { value: referenceBlobBytes })
+    Object.defineProperty(secondReferenceBlob, 'size', { value: referenceBlobBytes })
+    const settings = cloneDefaultSettings().api
+    settings.edit.bodyMode = 'json'
+    settings.edit.bodyTemplate = '{"image":"{{referenceImageBase64}}"}'
+
+    await expect(requestImages({
+      settings,
+      prompt: 'oversized reference',
+      params: { size: '1024x1024', quality: 'medium', format: 'png', n: 1 },
+      referenceImages: [firstReferenceBlob, secondReferenceBlob].map((blob, referenceIndex) => ({
+        blob,
+        previewUrl: '',
+        fileName: `oversized-${referenceIndex + 1}.png`,
+        mimeType: 'image/png',
+        width: 1024,
+        height: 1024,
+      })),
+    })).rejects.toThrow('Base64 模式下参考图总大小')
+  })
+
+  it('aborts a response body that stalls after sending headers', async () => {
+    vi.stubGlobal('window', globalThis)
+    let notifyFetchStarted: (() => void) | undefined
+    const fetchStarted = new Promise<void>(resolve => {
+      notifyFetchStarted = resolve
+    })
+    let bodyWasCanceled = false
+    const stalledBody = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('{"data":['))
+      },
+      cancel() {
+        bodyWasCanceled = true
+      },
+    })
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      notifyFetchStarted?.()
+      return new Response(stalledBody, {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    }))
+    const requestController = new AbortController()
+    const requestPromise = requestImages({
+      settings: cloneDefaultSettings().api,
+      prompt: 'stalled response',
+      params: { size: '1024x1024', quality: 'medium', format: 'png', n: 1 },
+      signal: requestController.signal,
+    })
+
+    await fetchStarted
+    await Promise.resolve()
+    requestController.abort(new DOMException('test cancellation', 'AbortError'))
+
+    await expect(requestPromise).rejects.toThrow('test cancellation')
+    expect(bodyWasCanceled).toBe(true)
+  })
+
+  it('rejects reference image counts above the service boundary', async () => {
+    vi.stubGlobal('window', globalThis)
+    const settings = cloneDefaultSettings().api
+    const referenceImages = Array.from({ length: 17 }, (_, referenceIndex) => ({
+      blob: new Blob(['x'], { type: 'image/png' }),
+      previewUrl: '',
+      fileName: `reference-${referenceIndex + 1}.png`,
+      mimeType: 'image/png',
+      width: 1,
+      height: 1,
+    }))
+
+    await expect(requestImages({
+      settings,
+      prompt: 'too many references',
+      params: { size: '1024x1024', quality: 'medium', format: 'png', n: 1 },
+      referenceImages,
+    })).rejects.toThrow('参考图不能超过 16 张')
   })
 })

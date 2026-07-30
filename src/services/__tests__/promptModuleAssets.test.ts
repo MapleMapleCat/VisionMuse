@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest'
 import {
   DEFAULT_PROMPT_MODULES,
   PROMPT_MODULE_ASSETS,
-  PROMPT_MODULE_CATEGORIES,
 } from '@/assets/prompt-modules'
 import {
   PROMPT_TAXONOMY_CHOICE_COUNT,
@@ -16,7 +15,6 @@ describe('prompt module assets', () => {
   it('defines one independently editable asset for every prompt category', () => {
     expect(PROMPT_MODULE_ASSETS.map(asset => asset.category.key))
       .toEqual([...PROMPT_MODULE_CATEGORY_KEYS])
-    expect(PROMPT_MODULE_CATEGORIES).toHaveLength(PROMPT_MODULE_CATEGORY_KEYS.length)
     expect(PROMPT_MODULE_ASSETS.every(asset => asset.modules.length >= 15)).toBe(true)
     expect(DEFAULT_PROMPT_MODULES.length).toBeGreaterThanOrEqual(200)
   })
