@@ -161,7 +161,7 @@ export const useGalleryStore = defineStore('gallery', () => {
   ))
 
   return {
-    images, alive, trashed, allTags, initialized, storageBytes,
+    images, alive, trashed, allTags, storageBytes,
     initialize, addGeneratedImage, byId, siblings, toggleFavorite, setTags, addTagToMany,
     softDelete, restore, purge,
   }

@@ -33,5 +33,5 @@ export const useTemplateStore = defineStore('templates', () => {
     return template
   }
 
-  return { templates, initialized, initialize, recordUse, createFromPrompt }
+  return { templates, initialize, recordUse, createFromPrompt }
 })

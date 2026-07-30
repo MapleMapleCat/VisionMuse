@@ -40,5 +40,5 @@ export const usePromptModuleStore = defineStore('promptModules', () => {
     }))
   }
 
-  return { promptModules, initialized, initialize, recordUses }
+  return { promptModules, initialize, recordUses }
 })

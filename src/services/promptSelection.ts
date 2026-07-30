@@ -107,15 +107,6 @@ function isIndexedGroupVisible(
     && matchesPromptSelectionCondition(indexedGroup.group.visibleWhen, selectedChoiceSet)
 }
 
-export function isPromptTaxonomyGroupVisible(
-  groupId: string,
-  selectedChoiceIds: Iterable<string>,
-): boolean {
-  const indexedGroup = PROMPT_TAXONOMY_INDEX.groupsById.get(groupId)
-  if (!indexedGroup) return false
-  return isIndexedGroupVisible(indexedGroup, createSelectedChoiceSet(selectedChoiceIds))
-}
-
 export function getVisiblePromptTaxonomyGroups(
   domainId: string,
   selectedChoiceIds: Iterable<string>,

@@ -214,5 +214,5 @@ export const useTaskStore = defineStore('tasks', () => {
       .reduce((sum, task) => sum + task.estimatedCost, 0)
   })
 
-  return { tasks, sessionTasks, activeCount, sessionCost, todayCost, initialized, initialize, submit, cancel, retry, remove }
+  return { tasks, sessionTasks, activeCount, sessionCost, todayCost, initialize, submit, cancel, retry, remove }
 })

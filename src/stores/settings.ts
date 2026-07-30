@@ -79,7 +79,7 @@ export const useSettingsStore = defineStore('settings', () => {
   }
 
   return {
-    settings, initialized, saving, testing, saveError, apiConfigured,
+    settings, saving, testing, saveError, apiConfigured,
     initialize, persist, waitForSaves, resetToOpenAiDefaults, testConnection,
   }
 })
