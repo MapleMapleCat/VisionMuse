@@ -811,11 +811,15 @@ watch(
   bottom: 20px;
   left: 100px;
   display: flex;
+  min-width: 0;
   justify-content: center;
   pointer-events: none;
 }
 
 .dock-surface {
+  box-sizing: border-box;
+  min-width: 0;
+  max-width: 100%;
   width: min(860px, 100%);
   border: 1px solid color-mix(in srgb, var(--color-line2) 86%, transparent);
   border-radius: 24px;
@@ -863,9 +867,11 @@ watch(
 }
 .icon-button:hover { background: var(--color-panel2); color: var(--color-paper); transform: translateY(-1px); }
 
-.task-thread { max-height: 180px; overflow-y: auto; padding: 4px 20px; }
+.task-thread { min-width: 0; max-height: 180px; overflow-x: hidden; overflow-y: auto; padding: 4px 20px; }
 .task-row {
   display: flex;
+  min-width: 0;
+  max-width: 100%;
   min-height: 54px;
   align-items: center;
   gap: 10px;
