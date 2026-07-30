@@ -120,13 +120,6 @@ body::before {
   100% { transform: scale(1); }
 }
 
-/* 浮窗展开/收起 */
-.dock-expand { animation: dock-expand 0.36s var(--ease-spring) both; }
-@keyframes dock-expand {
-  from { opacity: 0; transform: translateY(24px) scale(0.98); }
-  to { opacity: 1; transform: none; }
-}
-
 .progress-line {
   position: relative; overflow: hidden;
   height: 2px; background: var(--color-line);

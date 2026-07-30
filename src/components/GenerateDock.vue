@@ -58,22 +58,24 @@ function resizePromptTextarea() {
   const promptTextarea = promptEl.value
   if (!promptTextarea) return
 
+  const currentRenderedHeight = promptTextarea.getBoundingClientRect().height
   promptTextarea.style.height = 'auto'
 
-  if (!ui.dockOpen) {
-    promptTextarea.style.height = `${collapsedPromptHeight}px`
-    promptTextarea.style.overflowY = 'hidden'
-    return
-  }
-
-  const maximumHeight = Number.parseFloat(window.getComputedStyle(promptTextarea).maxHeight)
   const contentHeight = promptTextarea.scrollHeight
-  const nextHeight = Number.isFinite(maximumHeight)
+  const maximumHeight = Number.parseFloat(window.getComputedStyle(promptTextarea).maxHeight)
+  const expandedPromptHeight = Number.isFinite(maximumHeight)
     ? Math.min(contentHeight, maximumHeight)
     : contentHeight
+  const targetHeight = ui.dockOpen ? expandedPromptHeight : collapsedPromptHeight
 
-  promptTextarea.style.height = `${nextHeight}px`
-  promptTextarea.style.overflowY = contentHeight > nextHeight ? 'auto' : 'hidden'
+  if (Math.abs(currentRenderedHeight - targetHeight) > 0.5) {
+    promptTextarea.style.height = `${currentRenderedHeight}px`
+    // Commit the current pixel height so CSS can interpolate to the new height.
+    promptTextarea.getBoundingClientRect()
+  }
+
+  promptTextarea.style.height = `${targetHeight}px`
+  promptTextarea.style.overflowY = ui.dockOpen && contentHeight > targetHeight ? 'auto' : 'hidden'
 }
 
 const canSubmit = computed(() => ui.draftPrompt.trim().length > 0 && !submitting.value)
@@ -257,8 +259,16 @@ async function readReferences(files: File[]) {
   }
 }
 
-function closeMenus(event: MouseEvent) {
-  const target = event.target as HTMLElement
+function handleDocumentClick(event: MouseEvent) {
+  const target = event.target
+  if (!(target instanceof Element)) return
+
+  const clickedInsideDock = Boolean(target.closest('#visionmuse-create-panel'))
+  const clickedDockTrigger = Boolean(target.closest('[aria-controls~="visionmuse-create-panel"]'))
+  if (ui.dockOpen && !clickedInsideDock && !clickedDockTrigger) {
+    ui.dockOpen = false
+  }
+
   if (!target.closest('[data-dock-menu]')) {
     showTemplates.value = false
     showHistory.value = false
@@ -365,14 +375,14 @@ function showCompletedTaskToast(task: GenerationTask) {
 
 let clock: ReturnType<typeof setInterval> | undefined
 onMounted(() => {
-  document.addEventListener('click', closeMenus)
+  document.addEventListener('click', handleDocumentClick)
   window.addEventListener('resize', resizePromptTextarea)
   resizePromptTextarea()
   clock = setInterval(() => (now.value = Date.now()), 500)
 })
 
 onBeforeUnmount(() => {
-  document.removeEventListener('click', closeMenus)
+  document.removeEventListener('click', handleDocumentClick)
   window.removeEventListener('resize', resizePromptTextarea)
   if (clock) clearInterval(clock)
 })
@@ -435,97 +445,101 @@ watch(
 <template>
   <div class="generate-dock" :class="{ 'is-open': ui.dockOpen }">
     <section id="visionmuse-create-panel" class="dock-surface">
-      <div v-if="ui.dockOpen" class="dock-expand">
-        <header class="dock-heading">
-          <div>
-            <p class="field-label">VisionMuse create</p>
-            <div class="mt-1 flex items-center gap-2.5">
-              <h2 class="display text-[20px] leading-none">创作浮窗</h2>
-              <span v-if="tasks.activeCount" class="status-pill">
-                <span class="pulse-soft h-1.5 w-1.5 rounded-full bg-accent" />
-                {{ tasks.activeCount }} 个任务进行中
-              </span>
-            </div>
-          </div>
-          <div class="flex items-center gap-3">
-            <span v-if="tasks.sessionCost" class="hidden font-mono text-[10.5px] text-dim sm:inline">
-              本次完成 ≈ ${{ tasks.sessionCost.toFixed(2) }}
-            </span>
-            <button class="icon-button" title="收起创作浮窗" aria-label="收起创作浮窗" aria-controls="visionmuse-create-panel" :aria-expanded="ui.dockOpen" @click="ui.dockOpen = false">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
-                <path d="m6 9 6 6 6-6" />
-              </svg>
-            </button>
-          </div>
-        </header>
-
-        <div v-if="recentTasks.length" class="task-thread">
-          <article v-for="task in recentTasks" :key="task.id" class="task-row">
-            <div class="task-state" :class="`is-${task.status}`">
-              <span v-if="task.status === 'running'" class="pulse-soft h-2 w-2 rounded-full bg-accent" />
-              <span v-else-if="task.status === 'queued'" class="h-2 w-2 rounded-full border border-current" />
-              <span v-else-if="task.status === 'done'">✓</span>
-              <span v-else-if="task.status === 'failed'">!</span>
-              <span v-else>—</span>
-            </div>
-
-            <div class="min-w-0 flex-1">
-              <div class="flex items-center gap-2">
-                <span class="font-mono text-[10.5px]" :class="task.status === 'failed' ? 'text-red' : 'text-fade'">
-                  {{ statusText(task) }}
-                </span>
-                <span v-if="task.kind === 'edit'" class="text-[9.5px] text-accenthi">参考图编辑</span>
+      <Transition name="dock-section">
+        <div v-if="ui.dockOpen" class="dock-section dock-section-top">
+          <div class="dock-section-content">
+            <header class="dock-heading">
+              <div>
+                <p class="field-label">VisionMuse create</p>
+                <div class="mt-1 flex items-center gap-2.5">
+                  <h2 class="display text-[20px] leading-none">创作浮窗</h2>
+                  <span v-if="tasks.activeCount" class="status-pill">
+                    <span class="pulse-soft h-1.5 w-1.5 rounded-full bg-accent" />
+                    {{ tasks.activeCount }} 个任务进行中
+                  </span>
+                </div>
               </div>
-              <p class="mt-0.5 truncate text-[12px] text-paper/85" :title="task.prompt">{{ task.prompt }}</p>
-              <div v-if="task.status === 'running'" class="progress-line mt-2" />
-              <p v-if="task.status === 'failed'" class="mt-1 truncate text-[10.5px] text-red/80">{{ task.error }}</p>
+              <div class="flex items-center gap-3">
+                <span v-if="tasks.sessionCost" class="hidden font-mono text-[10.5px] text-dim sm:inline">
+                  本次完成 ≈ ${{ tasks.sessionCost.toFixed(2) }}
+                </span>
+                <button class="icon-button" title="收起创作浮窗" aria-label="收起创作浮窗" aria-controls="visionmuse-create-panel" :aria-expanded="ui.dockOpen" @click="ui.dockOpen = false">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                    <path d="m6 9 6 6 6-6" />
+                  </svg>
+                </button>
+              </div>
+            </header>
+
+            <div v-if="recentTasks.length" class="task-thread">
+              <article v-for="task in recentTasks" :key="task.id" class="task-row">
+                <div class="task-state" :class="`is-${task.status}`">
+                  <span v-if="task.status === 'running'" class="pulse-soft h-2 w-2 rounded-full bg-accent" />
+                  <span v-else-if="task.status === 'queued'" class="h-2 w-2 rounded-full border border-current" />
+                  <span v-else-if="task.status === 'done'">✓</span>
+                  <span v-else-if="task.status === 'failed'">!</span>
+                  <span v-else>—</span>
+                </div>
+
+                <div class="min-w-0 flex-1">
+                  <div class="flex items-center gap-2">
+                    <span class="font-mono text-[10.5px]" :class="task.status === 'failed' ? 'text-red' : 'text-fade'">
+                      {{ statusText(task) }}
+                    </span>
+                    <span v-if="task.kind === 'edit'" class="text-[9.5px] text-accenthi">参考图编辑</span>
+                  </div>
+                  <p class="mt-0.5 truncate text-[12px] text-paper/85" :title="task.prompt">{{ task.prompt }}</p>
+                  <div v-if="task.status === 'running'" class="progress-line mt-2" />
+                  <p v-if="task.status === 'failed'" class="mt-1 truncate text-[10.5px] text-red/80">{{ task.error }}</p>
+                </div>
+
+                <div v-if="task.status === 'done'" class="flex shrink-0 gap-1.5">
+                  <button
+                    v-for="image in taskImages(task).slice(0, 3)"
+                    :key="image.id"
+                    class="h-9 w-9 overflow-hidden rounded-lg border border-line transition hover:-translate-y-0.5 hover:border-accent"
+                    :title="image.prompt"
+                    :aria-label="`查看生成结果：${image.prompt}`"
+                    @click="openTaskResult(task, image.id)"
+                  >
+                    <img :src="image.dataUrl" :alt="image.prompt" class="h-full w-full object-cover" />
+                  </button>
+                </div>
+
+                <button
+                  v-if="task.status === 'queued' || task.status === 'running'"
+                  class="text-button"
+                  @click="tasks.cancel(task.id)"
+                >取消</button>
+                <div v-else-if="task.status === 'failed'" class="flex shrink-0 items-center gap-1">
+                  <button class="text-button text-accenthi" @click="tasks.retry(task.id)">重试</button>
+                  <button
+                    class="icon-button !h-7 !w-7"
+                    title="关闭并移除失败任务"
+                    aria-label="关闭并移除失败任务"
+                    @click="tasks.remove(task.id)"
+                  >
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 6l12 12M18 6 6 18" /></svg>
+                  </button>
+                </div>
+                <button v-else class="icon-button !h-7 !w-7" title="移除任务记录" aria-label="移除任务记录" @click="tasks.remove(task.id)">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 6l12 12M18 6 6 18" /></svg>
+                </button>
+              </article>
             </div>
 
-            <div v-if="task.status === 'done'" class="flex shrink-0 gap-1.5">
+            <div v-else class="inspiration-row">
+              <span class="field-label shrink-0">成品模板</span>
               <button
-                v-for="image in taskImages(task).slice(0, 3)"
-                :key="image.id"
-                class="h-9 w-9 overflow-hidden rounded-lg border border-line transition hover:-translate-y-0.5 hover:border-accent"
-                :title="image.prompt"
-                :aria-label="`查看生成结果：${image.prompt}`"
-                @click="openTaskResult(task, image.id)"
-              >
-                <img :src="image.dataUrl" :alt="image.prompt" class="h-full w-full object-cover" />
-              </button>
+                v-for="template in templateStore.templates.slice(0, 4)"
+                :key="template.id"
+                class="inspiration-chip"
+                @click="pickTemplate(template)"
+              >{{ template.title }}</button>
             </div>
-
-            <button
-              v-if="task.status === 'queued' || task.status === 'running'"
-              class="text-button"
-              @click="tasks.cancel(task.id)"
-            >取消</button>
-            <div v-else-if="task.status === 'failed'" class="flex shrink-0 items-center gap-1">
-              <button class="text-button text-accenthi" @click="tasks.retry(task.id)">重试</button>
-              <button
-                class="icon-button !h-7 !w-7"
-                title="关闭并移除失败任务"
-                aria-label="关闭并移除失败任务"
-                @click="tasks.remove(task.id)"
-              >
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 6l12 12M18 6 6 18" /></svg>
-              </button>
-            </div>
-            <button v-else class="icon-button !h-7 !w-7" title="移除任务记录" aria-label="移除任务记录" @click="tasks.remove(task.id)">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 6l12 12M18 6 6 18" /></svg>
-            </button>
-          </article>
+          </div>
         </div>
-
-        <div v-else class="inspiration-row">
-          <span class="field-label shrink-0">成品模板</span>
-          <button
-            v-for="template in templateStore.templates.slice(0, 4)"
-            :key="template.id"
-            class="inspiration-chip"
-            @click="pickTemplate(template)"
-          >{{ template.title }}</button>
-        </div>
-      </div>
+      </Transition>
 
       <div v-if="ui.referenceImages.length" class="reference-thumbnails" aria-label="已添加的参考图">
         <div
@@ -565,17 +579,19 @@ watch(
           @keydown="onKeydown"
           @paste="onPaste"
         />
-        <button
-          v-if="!ui.dockOpen"
-          class="parameter-summary"
-          title="展开生成参数"
-          aria-label="展开生成参数"
-          aria-controls="visionmuse-create-panel"
-          :aria-expanded="ui.dockOpen"
-          @click="openDock"
-        >
-          {{ imageAspectRatio }} · {{ imageResolution }} · {{ qualityLabel }} · {{ ui.draftParams.n }} 张
-        </button>
+        <Transition name="dock-inline">
+          <button
+            v-if="!ui.dockOpen"
+            class="parameter-summary"
+            title="展开生成参数"
+            aria-label="展开生成参数"
+            aria-controls="visionmuse-create-panel"
+            :aria-expanded="ui.dockOpen"
+            @click="openDock"
+          >
+            {{ imageAspectRatio }} · {{ imageResolution }} · {{ qualityLabel }} · {{ ui.draftParams.n }} 张
+          </button>
+        </Transition>
         <button class="send-button" :disabled="!canSubmit" title="生成（Ctrl + Enter）" aria-label="生成图片" @click="submit">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M12 19V5M6.5 10.5 12 5l5.5 5.5" />
@@ -627,8 +643,7 @@ watch(
           </div>
         </div>
 
-        <button v-if="!ui.dockOpen" class="tool-button ml-auto" aria-label="展开创作台" aria-controls="visionmuse-create-panel" :aria-expanded="ui.dockOpen" @click="openDock">
-          <span>展开创作台</span>
+        <button v-if="!ui.dockOpen" class="tool-button ml-auto" title="展开创作台" aria-label="展开创作台" aria-controls="visionmuse-create-panel" :aria-expanded="ui.dockOpen" @click="openDock">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m6 15 6-6 6 6" /></svg>
         </button>
 
@@ -640,165 +655,171 @@ watch(
         </template>
       </div>
 
-      <div v-if="ui.dockOpen" class="parameter-tray dock-expand">
-        <div class="parameter-group ratio-group">
-          <span class="field-label">比例</span>
-          <div class="seg" role="group" aria-label="图片比例">
-            <button
-              v-for="option in ASPECT_RATIO_OPTIONS"
-              :key="option.value"
-              :class="{ on: imageAspectRatio === option.value }"
-              :aria-pressed="imageAspectRatio === option.value"
-              @click="setImageAspectRatio(option.value)"
-            >{{ option.label }}</button>
-            <button
-              v-if="!customAspectRatioOpen"
-              :class="{ on: customAspectRatioOpen || !isCommonAspectRatio }"
-              :aria-pressed="customAspectRatioOpen || !isCommonAspectRatio"
-              @click="openCustomAspectRatio"
-            >自定义</button>
-            <input
-              v-else
-              ref="customAspectRatioEl"
-              v-model="customAspectRatioInput"
-              class="custom-ratio-input"
-              type="text"
-              inputmode="numeric"
-              maxlength="7"
-              placeholder="21:9"
-              title="输入自定义宽高比，例如 21:9"
-              aria-label="自定义图片比例，格式为宽比高"
-              :aria-invalid="customAspectRatioInvalid"
-              :class="{ invalid: customAspectRatioInvalid }"
-              @input="applyCustomAspectRatio"
-              @blur="applyCustomAspectRatio"
-              @keydown.enter.prevent="applyCustomAspectRatio"
-            />
-          </div>
-        </div>
-        <div class="parameter-group resolution-group">
-          <span class="field-label">分辨率</span>
-          <div class="seg" role="group" aria-label="图片分辨率">
-            <button
-              v-for="option in RESOLUTION_OPTIONS"
-              :key="option.value"
-              :class="{ on: imageResolution === option.value }"
-              :aria-pressed="imageResolution === option.value"
-              :title="getImageSize(imageAspectRatio, option.value).replace('x', ' × ')"
-              @click="setImageResolution(option.value)"
-            >{{ option.label }}</button>
-          </div>
-        </div>
-        <div class="parameter-group">
-          <span class="field-label">质量</span>
-          <div class="seg" role="group" aria-label="图片质量">
-            <button
-              v-for="option in QUALITY_OPTIONS"
-              :key="option.value"
-              :class="{ on: ui.draftParams.quality === option.value }"
-              :aria-pressed="ui.draftParams.quality === option.value"
-              @click="ui.draftParams.quality = option.value"
-            >{{ option.label }}</button>
-          </div>
-        </div>
-        <div class="parameter-group quantity-group" data-dock-menu>
-          <span class="field-label">数量</span>
-          <div class="quantity-control" :class="{ 'is-expanded': quantityExpanded }">
-            <button
-              class="quantity-trigger"
-              aria-label="修改生成数量"
-              aria-controls="quantity-editor"
-              :aria-expanded="quantityExpanded"
-              @click="toggleQuantityEditor"
-            >
-              <span class="quantity-compact-value">
-                <span class="quantity-number-window">
-                  <Transition :name="`quantity-wheel-${quantityChangeDirection}`">
-                    <strong :key="ui.draftParams.n">{{ ui.draftParams.n }}</strong>
-                  </Transition>
-                </span>
-                张
-              </span>
-              <span class="quantity-expanded-heading">
-                <span>数量</span>
-                <span class="quantity-expanded-value">
-                  <span class="quantity-number-window">
-                    <Transition :name="`quantity-wheel-${quantityChangeDirection}`">
-                      <strong :key="ui.draftParams.n">{{ ui.draftParams.n }}</strong>
-                    </Transition>
-                  </span>
-                  张
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
-                    <circle cx="12" cy="12" r="8" />
-                    <path d="m8.5 12 2.2 2.2 4.8-5" />
-                  </svg>
-                </span>
-              </span>
-            </button>
-
-            <div id="quantity-editor" class="quantity-editor" :aria-hidden="!quantityExpanded">
-              <div
-                class="quantity-slider-wrap"
-                :class="{ 'is-dragging': quantityDragging }"
-                :style="quantityRangeStyle"
-              >
-                <div class="quantity-slider-rail" aria-hidden="true">
-                  <div class="quantity-slider-fill" />
-                  <div class="quantity-dots">
-                    <i
-                      v-for="count in [1, 2, 3, 4]"
-                      :key="count"
-                      :class="{
-                        active: count <= ui.draftParams.n,
-                        hovered: quantityHoveredPosition === count && count !== ui.draftParams.n,
-                      }"
-                    />
-                  </div>
-                  <div
-                    class="quantity-slider-thumb"
-                    :class="{
-                      'is-hovered': quantityHoveredPosition === ui.draftParams.n,
-                      'is-dragging': quantityDragging,
-                    }"
+      <Transition name="dock-section">
+        <div v-if="ui.dockOpen" class="dock-section dock-parameter-section">
+          <div class="dock-section-content">
+            <div class="parameter-tray">
+              <div class="parameter-group ratio-group">
+                <span class="field-label">比例</span>
+                <div class="seg" role="group" aria-label="图片比例">
+                  <button
+                    v-for="option in ASPECT_RATIO_OPTIONS"
+                    :key="option.value"
+                    :class="{ on: imageAspectRatio === option.value }"
+                    :aria-pressed="imageAspectRatio === option.value"
+                    @click="setImageAspectRatio(option.value)"
+                  >{{ option.label }}</button>
+                  <button
+                    v-if="!customAspectRatioOpen"
+                    :class="{ on: customAspectRatioOpen || !isCommonAspectRatio }"
+                    :aria-pressed="customAspectRatioOpen || !isCommonAspectRatio"
+                    @click="openCustomAspectRatio"
+                  >自定义</button>
+                  <input
+                    v-else
+                    ref="customAspectRatioEl"
+                    v-model="customAspectRatioInput"
+                    class="custom-ratio-input"
+                    type="text"
+                    inputmode="numeric"
+                    maxlength="7"
+                    placeholder="21:9"
+                    title="输入自定义宽高比，例如 21:9"
+                    aria-label="自定义图片比例，格式为宽比高"
+                    :aria-invalid="customAspectRatioInvalid"
+                    :class="{ invalid: customAspectRatioInvalid }"
+                    @input="applyCustomAspectRatio"
+                    @blur="applyCustomAspectRatio"
+                    @keydown.enter.prevent="applyCustomAspectRatio"
                   />
                 </div>
-                <input
-                  v-model.number="ui.draftParams.n"
-                  class="quantity-slider"
-                  type="range"
-                  min="1"
-                  max="4"
-                  step="1"
-                  aria-label="单次生成张数"
-                  :aria-valuetext="`${ui.draftParams.n} 张`"
-                  :disabled="!quantityExpanded"
-                  @pointermove="updateQuantitySliderHover"
-                  @pointerleave="finishQuantitySliderDrag()"
-                  @pointerdown="startQuantitySliderDrag"
-                  @pointerup="finishQuantitySliderDrag"
-                  @pointercancel="finishQuantitySliderDrag()"
-                />
               </div>
+              <div class="parameter-group resolution-group">
+                <span class="field-label">分辨率</span>
+                <div class="seg" role="group" aria-label="图片分辨率">
+                  <button
+                    v-for="option in RESOLUTION_OPTIONS"
+                    :key="option.value"
+                    :class="{ on: imageResolution === option.value }"
+                    :aria-pressed="imageResolution === option.value"
+                    :title="getImageSize(imageAspectRatio, option.value).replace('x', ' × ')"
+                    @click="setImageResolution(option.value)"
+                  >{{ option.label }}</button>
+                </div>
+              </div>
+              <div class="parameter-group">
+                <span class="field-label">质量</span>
+                <div class="seg" role="group" aria-label="图片质量">
+                  <button
+                    v-for="option in QUALITY_OPTIONS"
+                    :key="option.value"
+                    :class="{ on: ui.draftParams.quality === option.value }"
+                    :aria-pressed="ui.draftParams.quality === option.value"
+                    @click="ui.draftParams.quality = option.value"
+                  >{{ option.label }}</button>
+                </div>
+              </div>
+              <div class="parameter-group quantity-group" data-dock-menu>
+                <span class="field-label">数量</span>
+                <div class="quantity-control" :class="{ 'is-expanded': quantityExpanded }">
+                  <button
+                    class="quantity-trigger"
+                    aria-label="修改生成数量"
+                    aria-controls="quantity-editor"
+                    :aria-expanded="quantityExpanded"
+                    @click="toggleQuantityEditor"
+                  >
+                    <span class="quantity-compact-value">
+                      <span class="quantity-number-window">
+                        <Transition :name="`quantity-wheel-${quantityChangeDirection}`">
+                          <strong :key="ui.draftParams.n">{{ ui.draftParams.n }}</strong>
+                        </Transition>
+                      </span>
+                      张
+                    </span>
+                    <span class="quantity-expanded-heading">
+                      <span>数量</span>
+                      <span class="quantity-expanded-value">
+                        <span class="quantity-number-window">
+                          <Transition :name="`quantity-wheel-${quantityChangeDirection}`">
+                            <strong :key="ui.draftParams.n">{{ ui.draftParams.n }}</strong>
+                          </Transition>
+                        </span>
+                        张
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                          <circle cx="12" cy="12" r="8" />
+                          <path d="m8.5 12 2.2 2.2 4.8-5" />
+                        </svg>
+                      </span>
+                    </span>
+                  </button>
 
-              <div class="quantity-scale" aria-hidden="true">
-                <span v-for="count in [1, 2, 3, 4]" :key="count" :class="{ active: count === ui.draftParams.n }">{{ count }}</span>
+                  <div id="quantity-editor" class="quantity-editor" :aria-hidden="!quantityExpanded">
+                    <div
+                      class="quantity-slider-wrap"
+                      :class="{ 'is-dragging': quantityDragging }"
+                      :style="quantityRangeStyle"
+                    >
+                      <div class="quantity-slider-rail" aria-hidden="true">
+                        <div class="quantity-slider-fill" />
+                        <div class="quantity-dots">
+                          <i
+                            v-for="count in [1, 2, 3, 4]"
+                            :key="count"
+                            :class="{
+                              active: count <= ui.draftParams.n,
+                              hovered: quantityHoveredPosition === count && count !== ui.draftParams.n,
+                            }"
+                          />
+                        </div>
+                        <div
+                          class="quantity-slider-thumb"
+                          :class="{
+                            'is-hovered': quantityHoveredPosition === ui.draftParams.n,
+                            'is-dragging': quantityDragging,
+                          }"
+                        />
+                      </div>
+                      <input
+                        v-model.number="ui.draftParams.n"
+                        class="quantity-slider"
+                        type="range"
+                        min="1"
+                        max="4"
+                        step="1"
+                        aria-label="单次生成张数"
+                        :aria-valuetext="`${ui.draftParams.n} 张`"
+                        :disabled="!quantityExpanded"
+                        @pointermove="updateQuantitySliderHover"
+                        @pointerleave="finishQuantitySliderDrag()"
+                        @pointerdown="startQuantitySliderDrag"
+                        @pointerup="finishQuantitySliderDrag"
+                        @pointercancel="finishQuantitySliderDrag()"
+                      />
+                    </div>
+
+                    <div class="quantity-scale" aria-hidden="true">
+                      <span v-for="count in [1, 2, 3, 4]" :key="count" :class="{ active: count === ui.draftParams.n }">{{ count }}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div class="parameter-group format-group">
+                <span class="field-label">格式</span>
+                <div class="seg" role="group" aria-label="图片格式">
+                  <button v-for="format in FORMAT_OPTIONS" :key="format" :class="{ on: ui.draftParams.format === format }" :aria-pressed="ui.draftParams.format === format" @click="ui.draftParams.format = format">
+                    {{ format }}
+                  </button>
+                </div>
+              </div>
+              <div class="cost-block">
+                <span class="field-label">成本估算</span>
+                <strong>≈ ${{ cost.toFixed(2) }}</strong>
               </div>
             </div>
           </div>
         </div>
-        <div class="parameter-group format-group">
-          <span class="field-label">格式</span>
-          <div class="seg" role="group" aria-label="图片格式">
-            <button v-for="format in FORMAT_OPTIONS" :key="format" :class="{ on: ui.draftParams.format === format }" :aria-pressed="ui.draftParams.format === format" @click="ui.draftParams.format = format">
-              {{ format }}
-            </button>
-          </div>
-        </div>
-        <div class="cost-block">
-          <span class="field-label">成本估算</span>
-          <strong>≈ ${{ cost.toFixed(2) }}</strong>
-        </div>
-      </div>
+      </Transition>
     </section>
   </div>
 </template>
@@ -827,13 +848,63 @@ watch(
   box-shadow: 0 1px 0 rgb(255 255 255 / 0.65) inset, 0 18px 70px rgb(38 35 28 / 0.2);
   backdrop-filter: blur(22px) saturate(1.08);
   pointer-events: auto;
-  transition: width 0.35s var(--ease-out-soft), border-radius 0.35s var(--ease-out-soft), box-shadow 0.35s ease;
+  transition:
+    width 0.42s var(--ease-out-soft),
+    border-radius 0.42s var(--ease-out-soft),
+    box-shadow 0.36s ease;
 }
 
 .is-open .dock-surface {
   width: min(920px, 100%);
   border-radius: 26px;
   box-shadow: 0 1px 0 rgb(255 255 255 / 0.72) inset, 0 26px 90px rgb(38 35 28 / 0.24);
+}
+
+.dock-section {
+  display: grid;
+  grid-template-rows: 1fr;
+  opacity: 1;
+  transform: translateY(0);
+}
+.dock-section-content { min-height: 0; }
+.dock-section-enter-active,
+.dock-section-leave-active {
+  overflow: hidden;
+  transition:
+    grid-template-rows 0.42s var(--ease-out-soft),
+    opacity 0.24s ease,
+    transform 0.42s var(--ease-out-soft);
+  will-change: grid-template-rows, opacity, transform;
+}
+.dock-section-enter-active > .dock-section-content,
+.dock-section-leave-active > .dock-section-content {
+  overflow: hidden;
+}
+.dock-section-enter-from,
+.dock-section-leave-to {
+  grid-template-rows: 0fr;
+  opacity: 0;
+}
+.dock-section-top.dock-section-enter-from,
+.dock-section-top.dock-section-leave-to {
+  transform: translateY(12px);
+}
+.dock-parameter-section.dock-section-enter-from,
+.dock-parameter-section.dock-section-leave-to {
+  transform: translateY(-10px);
+}
+.dock-section-leave-active {
+  transition-duration: 0.32s, 0.18s, 0.32s;
+}
+
+.dock-inline-enter-active,
+.dock-inline-leave-active {
+  transition: opacity 0.2s ease, transform 0.28s var(--ease-out-soft);
+}
+.dock-inline-enter-from,
+.dock-inline-leave-to {
+  opacity: 0;
+  transform: translateY(5px) scale(0.96);
 }
 
 .dock-heading {
@@ -1009,6 +1080,8 @@ watch(
   line-height: 1.55;
   color: var(--color-paper);
   outline: none;
+  transition: height 0.38s var(--ease-out-soft);
+  will-change: height;
 }
 .composer-row textarea::placeholder { color: var(--color-dim); }
 .parameter-summary {

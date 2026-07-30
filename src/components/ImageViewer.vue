@@ -225,8 +225,18 @@ const dateText = computed(() => {
           <div class="space-y-4 px-4 py-4">
             <!-- 操作行 -->
             <div class="flex flex-wrap gap-2">
-              <button v-if="!rec.deletedAt" class="btn btn-amber text-[12px]" @click="doRemix">↻ Remix</button>
-              <button v-if="!rec.deletedAt" class="btn text-[12px]" @click="doReference">用作参考图</button>
+              <button
+                v-if="!rec.deletedAt"
+                class="btn btn-amber text-[12px]"
+                aria-controls="visionmuse-create-panel"
+                @click="doRemix"
+              >↻ Remix</button>
+              <button
+                v-if="!rec.deletedAt"
+                class="btn text-[12px]"
+                aria-controls="visionmuse-create-panel"
+                @click="doReference"
+              >用作参考图</button>
               <button class="btn text-[12px]" @click="doDownload">下载</button>
               <button v-if="!rec.deletedAt" class="btn text-[12px]" @click="ui.saveAsTemplate(rec)">存为模板</button>
               <button

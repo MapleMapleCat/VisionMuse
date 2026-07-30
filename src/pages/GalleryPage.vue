@@ -187,7 +187,13 @@ function dateLabel(timestamp: number) {
             </svg>
             {{ showTrash ? '返回图库' : `回收站 ${stats.trash}` }}
           </button>
-          <button v-if="!showTrash" class="btn btn-primary" @click="ui.dockOpen = true">
+          <button
+            v-if="!showTrash"
+            class="btn btn-primary"
+            aria-controls="visionmuse-create-panel"
+            :aria-expanded="ui.dockOpen"
+            @click="ui.dockOpen = true"
+          >
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
               <path d="M12 3c.7 4.7 3.3 7.3 8 8-4.7.7-7.3 3.3-8 8-.7-4.7-3.3-7.3-8-8 4.7-.7 7.3-3.3 8-8Z" />
             </svg>
@@ -337,7 +343,13 @@ function dateLabel(timestamp: number) {
         <h2 class="display">{{ showTrash ? '回收站是空的' : '没有找到相符作品' }}</h2>
         <p>{{ showTrash ? '移入回收站的图片会显示在这里。' : '调整筛选条件，或在底部创作浮窗生成一张新图片。' }}</p>
         <button v-if="activeFilterCount" class="btn mt-4" @click="resetFilters">清除全部筛选</button>
-        <button v-else-if="!showTrash" class="btn btn-primary mt-4" @click="ui.dockOpen = true">开始创作</button>
+        <button
+          v-else-if="!showTrash"
+          class="btn btn-primary mt-4"
+          aria-controls="visionmuse-create-panel"
+          :aria-expanded="ui.dockOpen"
+          @click="ui.dockOpen = true"
+        >开始创作</button>
       </div>
     </main>
   </div>
