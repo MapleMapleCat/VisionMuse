@@ -128,6 +128,10 @@ const selectedDomainCount = computed(() => PROMPT_TAXONOMY_DOMAINS.filter(domain
   getDomainSelectionCount(domain.id) > 0
 )).length)
 const activeDomainSelectionRequirements = computed<PromptSelectionRequirementViewModel[]>(() => {
+  // Only surface requirements that block entry into the active domain. Requirements for
+  // later refinement options remain implicit until the user reaches those controls.
+  if (visibleRootGroups.value.length > 0) return []
+
   const requirementsByKey = new Map<string, PromptSelectionRequirementViewModel>()
 
   function recordSelectionRequirements(
@@ -621,8 +625,7 @@ onBeforeUnmount(() => {
 
             <aside
               v-if="activeDomainSelectionRequirements.length"
-              class="taxonomy-requirements"
-              :class="{ 'is-blocking': !visibleRootGroups.length }"
+              class="taxonomy-requirements is-blocking"
               role="status"
               aria-live="polite"
             >
@@ -634,9 +637,7 @@ onBeforeUnmount(() => {
                   </svg>
                 </span>
                 <span>
-                  <strong>
-                    {{ visibleRootGroups.length ? '部分细化选项尚未开放' : '请先完成关联的上级选择' }}
-                  </strong>
+                  <strong>请先完成关联的上级选择</strong>
                   <small>以下列出需要前往的领域、选择组和具体选项。</small>
                 </span>
               </div>
