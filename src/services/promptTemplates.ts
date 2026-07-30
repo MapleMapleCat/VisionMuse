@@ -174,6 +174,15 @@ export function fillPromptTemplate(
   }
 }
 
+export function createPromptTemplateExampleValues(
+  template: PromptTemplate,
+): Record<string, string> {
+  return Object.fromEntries(template.variables.map(variable => [
+    variable.key,
+    variable.example?.trim() ?? '',
+  ]))
+}
+
 export function createUserPromptTemplate(prompt: string, id: string): PromptTemplate {
   const normalizedPrompt = prompt.trim()
   return {

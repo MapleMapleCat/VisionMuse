@@ -9,6 +9,7 @@ import {
 import { PORTRAIT_TEMPLATES } from '@/defaults/prompt-templates'
 import { DEFAULT_TEMPLATES } from '@/defaults/templates'
 import {
+  createPromptTemplateExampleValues,
   extractPromptTemplateVariableKeys,
   fillPromptTemplate,
   normalizePromptTemplate,
@@ -82,12 +83,11 @@ describe('complete prompt templates', () => {
 
   it('fills every built-in template without unresolved placeholders', () => {
     for (const template of DEFAULT_TEMPLATES) {
-      const values = Object.fromEntries(template.variables.map(variable => [
-        variable.key,
-        variable.example ?? variable.placeholder,
-      ]))
+      const values = createPromptTemplateExampleValues(template)
       const result = fillPromptTemplate(template, values)
 
+      expect(Object.values(values).every(value => value.length > 0)).toBe(true)
+      expect(Object.values(values).every(value => !/^例如\s*[：:]/.test(value))).toBe(true)
       expect(result.ready).toBe(true)
       expect(result.missingRequiredVariableKeys).toEqual([])
       expect(result.unresolvedVariableKeys).toEqual([])

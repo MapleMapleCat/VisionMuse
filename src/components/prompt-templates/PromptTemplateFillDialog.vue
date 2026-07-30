@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { fillPromptTemplate } from '@/services/promptTemplates'
+import {
+  createPromptTemplateExampleValues,
+  fillPromptTemplate,
+} from '@/services/promptTemplates'
 import type { PromptTemplate } from '@/types'
 
 const props = defineProps<{
@@ -19,9 +22,9 @@ const hasVariables = computed(() => Boolean(props.template?.variables.length))
 watch(
   () => props.template,
   (template) => {
-    variableValues.value = Object.fromEntries(
-      (template?.variables ?? []).map(variable => [variable.key, '']),
-    )
+    variableValues.value = template
+      ? createPromptTemplateExampleValues(template)
+      : {}
   },
   { immediate: true },
 )
@@ -85,7 +88,7 @@ function useFilledPrompt() {
           <div v-if="hasVariables" class="border-b border-line p-5 md:overflow-y-auto md:border-b-0 md:border-r">
             <p class="field-label">Variables</p>
             <p class="mt-1 text-[11px] leading-relaxed text-dim">
-              填写全部变量后才能复制或进入创作，最终文本不会保留占位符。
+              已用示例内容预填变量，可直接使用或按需修改，最终文本不会保留占位符。
             </p>
 
             <div class="mt-4 space-y-4">

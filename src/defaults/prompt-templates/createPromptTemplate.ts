@@ -10,13 +10,15 @@ export function createRequiredVariable(
   key: string,
   label: string,
   placeholder: string,
-  example: string = placeholder,
+  example?: string,
 ): PromptTemplateVariable {
+  const defaultExample = placeholder.replace(/^例如\s*[：:]\s*/, '')
+
   return {
     key,
     label,
     placeholder,
-    example,
+    example: example ?? defaultExample,
     required: true,
   }
 }
