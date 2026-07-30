@@ -42,6 +42,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     testUrl: 'https://api.openai.com/v1/models/gpt-image-2',
     timeoutMs: 300_000,
     maxConcurrent: 2,
+    generationRequestMode: 'request-n',
     generation: {
       url: 'https://api.openai.com/v1/images/generations',
       method: 'POST',

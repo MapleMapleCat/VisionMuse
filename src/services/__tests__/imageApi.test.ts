@@ -46,6 +46,67 @@ describe('custom image API request templates', () => {
     })
   })
 
+  it('uses one request with the selected n parameter by default', async () => {
+    vi.stubGlobal('window', globalThis)
+    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => new Response(JSON.stringify({
+      data: Array.from({ length: 4 }, (_, imageIndex) => ({
+        b64_json: btoa(`generated-image-${imageIndex + 1}`),
+      })),
+    }), { status: 200, headers: { 'content-type': 'application/json' } }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const settings = cloneDefaultSettings().api
+    settings.generationRequestMode = 'request-n'
+    const result = await requestImages({
+      settings,
+      prompt: 'four variations',
+      params: { size: '1024x1024', quality: 'medium', format: 'png', n: 4 },
+    })
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    const requestBody = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)) as Record<string, unknown>
+    expect(requestBody.n).toBe(4)
+    expect(result.images).toHaveLength(4)
+  })
+
+  it('sends four simultaneous n=1 requests in parallel single-image mode', async () => {
+    vi.stubGlobal('window', globalThis)
+    let notifyAllRequestsStarted: (() => void) | undefined
+    const allRequestsStarted = new Promise<void>(resolve => {
+      notifyAllRequestsStarted = resolve
+    })
+    const requestBodies: Array<Record<string, unknown>> = []
+    const fetchMock = vi.fn(async (_url: string, requestInit?: RequestInit) => {
+      requestBodies.push(JSON.parse(String(requestInit?.body)) as Record<string, unknown>)
+      const requestNumber = requestBodies.length
+      if (requestNumber === 4) notifyAllRequestsStarted?.()
+      await allRequestsStarted
+      return new Response(JSON.stringify({
+        data: [{ b64_json: btoa(`parallel-image-${requestNumber}`) }],
+        usage: { requestNumber },
+      }), { status: 200, headers: { 'content-type': 'application/json' } })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const settings = cloneDefaultSettings().api
+    settings.generationRequestMode = 'parallel-single'
+    const result = await requestImages({
+      settings,
+      prompt: 'four parallel variations',
+      params: { size: '1024x1024', quality: 'medium', format: 'png', n: 4 },
+    })
+
+    expect(fetchMock).toHaveBeenCalledTimes(4)
+    expect(requestBodies.map(requestBody => requestBody.n)).toEqual([1, 1, 1, 1])
+    expect(result.images).toHaveLength(4)
+    expect(result.usage).toEqual([
+      { requestNumber: 1 },
+      { requestNumber: 2 },
+      { requestNumber: 3 },
+      { requestNumber: 4 },
+    ])
+  })
+
   it('provides dimensions, aspect ratio, and resolution to request templates', async () => {
     vi.stubGlobal('window', globalThis)
     const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => new Response(JSON.stringify({

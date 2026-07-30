@@ -570,6 +570,58 @@ async function executeOperation(
   )
 }
 
+async function executeParallelSingleImageRequests(
+  operation: ApiOperationConfig,
+  settings: ApiSettings,
+  prompt: string,
+  params: GenParams,
+  signal?: AbortSignal,
+): Promise<ImageApiResult> {
+  const parallelRequestController = new AbortController()
+  const abortParallelRequests = () => {
+    parallelRequestController.abort(signal?.reason ?? new DOMException('请求已取消', 'AbortError'))
+  }
+
+  if (signal?.aborted) abortParallelRequests()
+  else signal?.addEventListener('abort', abortParallelRequests, { once: true })
+
+  const singleImageParams: GenParams = { ...params, n: 1 }
+  try {
+    const requestPromises = Array.from({ length: params.n }, async () => {
+      try {
+        const result = await executeOperation(
+          operation,
+          settings,
+          prompt,
+          singleImageParams,
+          [],
+          parallelRequestController.signal,
+        )
+        if (result.images.length !== 1) {
+          throw new ImageApiError(
+            `并行单图模式要求每个请求返回 1 张图片，接口实际返回了 ${result.images.length} 张`,
+          )
+        }
+        return result
+      } catch (error) {
+        if (!parallelRequestController.signal.aborted) {
+          parallelRequestController.abort(error)
+        }
+        throw error
+      }
+    })
+    const requestResults = await Promise.all(requestPromises)
+    const requestUsages = requestResults.map(result => result.usage)
+
+    return {
+      images: requestResults.flatMap(result => result.images),
+      usage: requestUsages.some(usage => usage !== undefined) ? requestUsages : undefined,
+    }
+  } finally {
+    signal?.removeEventListener('abort', abortParallelRequests)
+  }
+}
+
 export function requestImages(options: {
   settings: ApiSettings
   prompt: string
@@ -581,6 +633,15 @@ export function requestImages(options: {
   const params = parseGenerationParameters(options.params)
   const referenceImages = options.referenceImages ?? []
   const operation = referenceImages.length ? settings.edit : settings.generation
+  if (settings.generationRequestMode === 'parallel-single' && !referenceImages.length) {
+    return executeParallelSingleImageRequests(
+      operation,
+      settings,
+      options.prompt,
+      params,
+      options.signal,
+    )
+  }
   return executeOperation(operation, settings, options.prompt, params, referenceImages, options.signal)
 }
 

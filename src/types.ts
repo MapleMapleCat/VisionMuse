@@ -5,6 +5,7 @@ export type ImageQuality = 'low' | 'medium' | 'high'
 export type ImageFormat = 'png' | 'webp' | 'jpeg'
 export type TaskStatus = 'queued' | 'running' | 'done' | 'failed' | 'canceled'
 export type RequestBodyMode = 'json' | 'multipart'
+export type GenerationRequestMode = 'request-n' | 'parallel-single'
 
 export interface GenParams {
   size: ImageSize
@@ -51,6 +52,7 @@ export interface ApiSettings {
   testUrl: string
   timeoutMs: number
   maxConcurrent: number
+  generationRequestMode: GenerationRequestMode
   generation: ApiOperationConfig
   edit: ApiOperationConfig
   response: ApiResponseMapping

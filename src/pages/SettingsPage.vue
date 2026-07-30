@@ -244,7 +244,7 @@ onBeforeUnmount(() => {
               <input v-model.number="settingsStore.settings.api.timeoutMs" type="number" min="1000" class="input font-mono" />
             </label>
             <label class="block">
-              <span class="field-label mb-1.5 block">最大并发</span>
+              <span class="field-label mb-1.5 block">最大并发任务数</span>
               <input v-model.number="settingsStore.settings.api.maxConcurrent" type="number" min="1" max="8" class="input font-mono" />
             </label>
             <label class="block sm:col-span-2">
@@ -327,7 +327,64 @@ onBeforeUnmount(() => {
         </div>
       </section>
 
-      <section class="rise-in mb-5 rounded-2xl border border-line bg-well p-5 shadow-card" style="--stagger: 4">
+      <section class="rise-in mb-5" style="--stagger: 4">
+        <div class="mb-3">
+          <p class="field-label text-amber">Experimental</p>
+          <h2 class="mt-1 text-[13.5px] font-semibold">实验性设置</h2>
+        </div>
+
+        <div class="grid gap-3 sm:grid-cols-2">
+          <article class="rounded-2xl border border-amber/25 bg-well p-4 shadow-card">
+            <div class="flex items-start justify-between gap-3">
+              <div>
+                <h3 class="text-[12.5px] font-medium">并发生成</h3>
+                <p class="mt-1 text-[10.5px] leading-relaxed text-dim">多张文生图的请求方式；不影响图片编辑。</p>
+              </div>
+              <span class="shrink-0 font-mono text-[9px] text-amber">BETA</span>
+            </div>
+
+            <div class="mt-3 space-y-1.5" role="radiogroup" aria-label="并发生成请求方式">
+              <label
+                class="flex cursor-pointer items-start gap-2.5 rounded-lg border px-2.5 py-2 transition"
+                :class="settingsStore.settings.api.generationRequestMode === 'request-n' ? 'border-amber/55 bg-amber/6' : 'border-line bg-ink/20 hover:border-line2'"
+              >
+                <input
+                  v-model="settingsStore.settings.api.generationRequestMode"
+                  class="mt-0.5 h-3.5 w-3.5 shrink-0 accent-amber"
+                  type="radio"
+                  value="request-n"
+                />
+                <span class="min-w-0">
+                  <strong class="block text-[11.5px] font-medium">请求参数 n</strong>
+                  <span class="mt-0.5 block text-[9.5px] leading-relaxed text-dim">单请求，数量写入 <code v-text="'{{n}}'" />。</span>
+                </span>
+              </label>
+
+              <label
+                class="flex cursor-pointer items-start gap-2.5 rounded-lg border px-2.5 py-2 transition"
+                :class="settingsStore.settings.api.generationRequestMode === 'parallel-single' ? 'border-amber/55 bg-amber/6' : 'border-line bg-ink/20 hover:border-line2'"
+              >
+                <input
+                  v-model="settingsStore.settings.api.generationRequestMode"
+                  class="mt-0.5 h-3.5 w-3.5 shrink-0 accent-amber"
+                  type="radio"
+                  value="parallel-single"
+                />
+                <span class="min-w-0">
+                  <strong class="block text-[11.5px] font-medium">并行单图请求</strong>
+                  <span class="mt-0.5 block text-[9.5px] leading-relaxed text-dim">选择 4 张时并发发送 4 个 <code>n = 1</code> 请求。</span>
+                </span>
+              </label>
+            </div>
+
+            <p v-if="settingsStore.settings.api.generationRequestMode === 'parallel-single'" class="mt-2 text-[9.5px] leading-relaxed text-amberhi/85">
+              最多 {{ settingsStore.settings.api.maxConcurrent * 4 }} 个 HTTP 请求并发，请注意限流和费用。
+            </p>
+          </article>
+        </div>
+      </section>
+
+      <section class="rise-in mb-5 rounded-2xl border border-line bg-well p-5 shadow-card" style="--stagger: 6">
         <h2 class="mb-4 text-[13.5px] font-semibold">本地存储与备份</h2>
         <div class="mb-4 flex flex-wrap items-end justify-between gap-4">
           <div>

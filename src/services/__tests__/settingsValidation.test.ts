@@ -12,6 +12,7 @@ describe('runtime settings validation', () => {
       api: {
         timeoutMs: 0,
         maxConcurrent: -4,
+        generationRequestMode: 'unsupported-mode',
         generation: { url: 42 },
       },
       defaultParams: { n: 99, quality: 'ultra' },
@@ -21,6 +22,7 @@ describe('runtime settings validation', () => {
 
     expect(normalizedSettings.api.timeoutMs).toBe(defaults.api.timeoutMs)
     expect(normalizedSettings.api.maxConcurrent).toBe(defaults.api.maxConcurrent)
+    expect(normalizedSettings.api.generationRequestMode).toBe(defaults.api.generationRequestMode)
     expect(normalizedSettings.api.generation.url).toBe(defaults.api.generation.url)
     expect(normalizedSettings.defaultParams).toEqual(defaults.defaultParams)
     expect(normalizedSettings.budgetDaily).toBe(defaults.budgetDaily)
@@ -44,6 +46,7 @@ describe('runtime settings validation', () => {
 
     expect(parsedSettings.api.generation.url).toBe('https://images.example.test/generate')
     expect(parsedSettings.api.maxConcurrent).toBe(cloneDefaultSettings().api.maxConcurrent)
+    expect(parsedSettings.api.generationRequestMode).toBe('request-n')
     expect(parsedSettings.defaultParams.quality).toBe('high')
     expect(parsedSettings.defaultParams.n).toBe(1)
   })
@@ -73,5 +76,9 @@ describe('runtime settings validation', () => {
     const settings = cloneDefaultSettings()
     settings.api.extraHeaders = '[]'
     expect(() => parseAppSettings(settings)).toThrow('设置.api.extraHeaders')
+
+    expect(() => parseAppSettings({
+      api: { generationRequestMode: 'sequential' },
+    })).toThrow('设置.api.generationRequestMode')
   })
 })
