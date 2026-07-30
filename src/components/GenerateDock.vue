@@ -52,6 +52,29 @@ const customAspectRatioInvalid = ref(false)
 const now = ref(Date.now())
 const submitting = ref(false)
 const seenTerminalTasks = new Set<string>()
+const collapsedPromptHeight = 36
+
+function resizePromptTextarea() {
+  const promptTextarea = promptEl.value
+  if (!promptTextarea) return
+
+  promptTextarea.style.height = 'auto'
+
+  if (!ui.dockOpen) {
+    promptTextarea.style.height = `${collapsedPromptHeight}px`
+    promptTextarea.style.overflowY = 'hidden'
+    return
+  }
+
+  const maximumHeight = Number.parseFloat(window.getComputedStyle(promptTextarea).maxHeight)
+  const contentHeight = promptTextarea.scrollHeight
+  const nextHeight = Number.isFinite(maximumHeight)
+    ? Math.min(contentHeight, maximumHeight)
+    : contentHeight
+
+  promptTextarea.style.height = `${nextHeight}px`
+  promptTextarea.style.overflowY = contentHeight > nextHeight ? 'auto' : 'hidden'
+}
 
 const canSubmit = computed(() => ui.draftPrompt.trim().length > 0 && !submitting.value)
 const cost = computed(() => estimateCost(
@@ -343,13 +366,21 @@ function showCompletedTaskToast(task: GenerationTask) {
 let clock: ReturnType<typeof setInterval> | undefined
 onMounted(() => {
   document.addEventListener('click', closeMenus)
+  window.addEventListener('resize', resizePromptTextarea)
+  resizePromptTextarea()
   clock = setInterval(() => (now.value = Date.now()), 500)
 })
 
 onBeforeUnmount(() => {
   document.removeEventListener('click', closeMenus)
+  window.removeEventListener('resize', resizePromptTextarea)
   if (clock) clearInterval(clock)
 })
+
+watch(
+  [() => ui.draftPrompt, () => ui.dockOpen],
+  () => nextTick(resizePromptTextarea),
+)
 
 watch(
   () => ui.draftParams.n,
@@ -958,9 +989,11 @@ watch(
   color: var(--color-accenthi);
 }
 .composer-row textarea {
+  box-sizing: border-box;
   min-height: 36px;
-  max-height: 124px;
+  max-height: 168px;
   flex: 1;
+  overflow-y: hidden;
   resize: none;
   border: 0;
   background: transparent;
