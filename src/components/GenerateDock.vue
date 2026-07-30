@@ -854,6 +854,12 @@ watch(
     box-shadow 0.36s ease;
 }
 
+.dock-surface > * {
+  box-sizing: border-box;
+  min-width: 0;
+  max-width: 100%;
+}
+
 .is-open .dock-surface {
   width: min(920px, 100%);
   border-radius: 26px;
@@ -862,11 +868,17 @@ watch(
 
 .dock-section {
   display: grid;
+  min-width: 0;
+  max-width: 100%;
   grid-template-rows: 1fr;
   opacity: 1;
   transform: translateY(0);
 }
-.dock-section-content { min-height: 0; }
+.dock-section-content {
+  min-width: 0;
+  max-width: 100%;
+  min-height: 0;
+}
 .dock-section-enter-active,
 .dock-section-leave-active {
   overflow: hidden;
@@ -909,11 +921,15 @@ watch(
 
 .dock-heading {
   display: flex;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
   align-items: flex-start;
   justify-content: space-between;
   padding: 18px 20px 13px;
   border-bottom: 1px solid var(--color-line);
 }
+.dock-heading > * { min-width: 0; }
 
 .status-pill {
   display: inline-flex;
@@ -938,9 +954,11 @@ watch(
 }
 .icon-button:hover { background: var(--color-panel2); color: var(--color-paper); transform: translateY(-1px); }
 
-.task-thread { min-width: 0; max-height: 180px; overflow-x: hidden; overflow-y: auto; padding: 4px 20px; }
+.task-thread { box-sizing: border-box; width: 100%; min-width: 0; max-width: 100%; max-height: 180px; overflow-x: hidden; overflow-y: auto; padding: 4px 20px; }
 .task-row {
   display: flex;
+  box-sizing: border-box;
+  width: 100%;
   min-width: 0;
   max-width: 100%;
   min-height: 54px;
@@ -970,6 +988,9 @@ watch(
 
 .inspiration-row {
   display: flex;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
   align-items: center;
   gap: 7px;
   overflow-x: auto;
@@ -987,6 +1008,7 @@ watch(
 
 .reference-thumbnails {
   display: flex;
+  min-width: 0;
   gap: 8px;
   overflow-x: auto;
   margin: 12px 14px 0;
@@ -1040,6 +1062,7 @@ watch(
 
 .composer-row {
   display: flex;
+  min-width: 0;
   align-items: flex-end;
   gap: 10px;
   margin: 12px 14px 7px;
@@ -1067,9 +1090,11 @@ watch(
 }
 .composer-row textarea {
   box-sizing: border-box;
+  width: 0;
+  min-width: 0;
   min-height: 36px;
   max-height: 168px;
-  flex: 1;
+  flex: 1 1 0;
   overflow-y: hidden;
   resize: none;
   border: 0;
@@ -1111,7 +1136,7 @@ watch(
 .send-button:hover:not(:disabled) { background: #3a362c; transform: translateY(-2px); }
 .send-button:disabled { cursor: not-allowed; opacity: 0.28; box-shadow: none; }
 
-.composer-tools { display: flex; align-items: center; gap: 2px; padding: 0 14px 10px 58px; }
+.composer-tools { display: flex; min-width: 0; max-width: 100%; box-sizing: border-box; align-items: center; gap: 2px; padding: 0 14px 10px 58px; }
 .tool-button {
   display: inline-flex;
   align-items: center;
@@ -1155,6 +1180,9 @@ watch(
 .parameter-tray {
   --parameter-control-height: 36px;
   display: grid;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
   grid-template-columns: minmax(250px, 2fr) minmax(96px, 0.8fr) minmax(96px, 0.8fr) 64px minmax(112px, 0.95fr) auto;
   gap: 12px;
   align-items: start;
