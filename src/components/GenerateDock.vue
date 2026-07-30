@@ -38,6 +38,7 @@ const templateStore = useTemplateStore()
 const route = useRoute()
 const router = useRouter()
 
+const promptViewportEl = ref<HTMLElement>()
 const promptEl = ref<HTMLTextAreaElement>()
 const customAspectRatioEl = ref<HTMLInputElement>()
 const showTemplates = ref(false)
@@ -51,8 +52,43 @@ const customAspectRatioInput = ref('')
 const customAspectRatioInvalid = ref(false)
 const now = ref(Date.now())
 const submitting = ref(false)
+const promptReflowDirection = ref<'opening' | 'closing' | null>(null)
+const promptReflowSnapshot = ref<{
+  height: number
+  isPlaceholder: boolean
+  scrollTop: number
+  text: string
+  width: number
+} | null>(null)
 const seenTerminalTasks = new Set<string>()
 const collapsedPromptHeight = 36
+const promptReflowCleanupDelayMs = 540
+let promptReflowTimer: ReturnType<typeof setTimeout> | undefined
+
+function animatePromptTextReflow(isOpening: boolean) {
+  if (promptReflowTimer) clearTimeout(promptReflowTimer)
+
+  const promptTextarea = promptEl.value
+  if (promptTextarea) {
+    const promptTextareaBounds = promptTextarea.getBoundingClientRect()
+    const promptText = ui.draftPrompt
+    promptReflowSnapshot.value = {
+      height: promptTextareaBounds.height,
+      isPlaceholder: !promptText,
+      scrollTop: promptTextarea.scrollTop,
+      text: promptText || promptTextarea.placeholder,
+      width: promptTextareaBounds.width,
+    }
+  }
+
+  promptReflowDirection.value = isOpening ? 'opening' : 'closing'
+  promptReflowTimer = setTimeout(() => {
+    promptReflowDirection.value = null
+    promptReflowSnapshot.value = null
+    promptReflowTimer = undefined
+    void nextTick(resizePromptTextarea)
+  }, promptReflowCleanupDelayMs)
+}
 
 function resizePromptTextarea() {
   const promptTextarea = promptEl.value
@@ -75,7 +111,10 @@ function resizePromptTextarea() {
   }
 
   promptTextarea.style.height = `${targetHeight}px`
-  promptTextarea.style.overflowY = ui.dockOpen && contentHeight > targetHeight ? 'auto' : 'hidden'
+  const promptNeedsScrollbar = ui.dockOpen && contentHeight > targetHeight
+  promptTextarea.style.overflowY = promptReflowDirection.value
+    ? 'hidden'
+    : promptNeedsScrollbar ? 'auto' : 'hidden'
 }
 
 const canSubmit = computed(() => ui.draftPrompt.trim().length > 0 && !submitting.value)
@@ -374,16 +413,45 @@ function showCompletedTaskToast(task: GenerationTask) {
 }
 
 let clock: ReturnType<typeof setInterval> | undefined
+let promptViewportResizeObserver: ResizeObserver | undefined
+let promptResizeAnimationFrame: number | undefined
+let observedPromptViewportWidth = 0
 onMounted(() => {
   document.addEventListener('click', handleDocumentClick)
   window.addEventListener('resize', resizePromptTextarea)
   resizePromptTextarea()
+
+  const promptViewport = promptViewportEl.value
+  if (promptViewport) {
+    observedPromptViewportWidth = promptViewport.getBoundingClientRect().width
+    promptViewportResizeObserver = new ResizeObserver(entries => {
+      const nextPromptViewportWidth = entries[0]?.contentRect.width ?? 0
+      if (Math.abs(nextPromptViewportWidth - observedPromptViewportWidth) < 0.5) return
+      observedPromptViewportWidth = nextPromptViewportWidth
+
+      if (promptResizeAnimationFrame !== undefined) {
+        window.cancelAnimationFrame(promptResizeAnimationFrame)
+      }
+      promptResizeAnimationFrame = window.requestAnimationFrame(() => {
+        promptResizeAnimationFrame = undefined
+        resizePromptTextarea()
+      })
+    })
+    promptViewportResizeObserver.observe(promptViewport)
+  }
+
   clock = setInterval(() => (now.value = Date.now()), 500)
 })
 
 onBeforeUnmount(() => {
   document.removeEventListener('click', handleDocumentClick)
   window.removeEventListener('resize', resizePromptTextarea)
+  promptViewportResizeObserver?.disconnect()
+  if (promptResizeAnimationFrame !== undefined) {
+    window.cancelAnimationFrame(promptResizeAnimationFrame)
+  }
+  if (promptReflowTimer) clearTimeout(promptReflowTimer)
+  promptReflowSnapshot.value = null
   if (clock) clearInterval(clock)
 })
 
@@ -423,6 +491,7 @@ watch(
 watch(
   () => ui.dockOpen,
   isOpen => {
+    animatePromptTextReflow(isOpen)
     if (isOpen) return
     showTemplates.value = false
     showHistory.value = false
@@ -569,28 +638,47 @@ watch(
             <path d="M12 3c.7 4.7 3.3 7.3 8 8-4.7.7-7.3 3.3-8 8-.7-4.7-3.3-7.3-8-8 4.7-.7 7.3-3.3 8-8Z" />
           </svg>
         </div>
-        <textarea
-          ref="promptEl"
-          v-model="ui.draftPrompt"
-          :rows="ui.dockOpen ? 3 : 1"
-          aria-label="图片生成提示词"
-          placeholder="描述你想看到的画面……"
-          @focus="ui.dockOpen = true"
-          @keydown="onKeydown"
-          @paste="onPaste"
-        />
-        <Transition name="dock-inline">
-          <button
-            v-if="!ui.dockOpen"
-            class="parameter-summary"
-            title="展开生成参数"
-            aria-label="展开生成参数"
-            aria-controls="visionmuse-create-panel"
-            :aria-expanded="ui.dockOpen"
-            @click="openDock"
+        <div ref="promptViewportEl" class="prompt-viewport">
+          <div
+            v-if="promptReflowSnapshot"
+            class="prompt-reflow-snapshot"
+            :class="{ 'is-placeholder': promptReflowSnapshot.isPlaceholder }"
+            :style="{
+              width: `${promptReflowSnapshot.width}px`,
+              height: `${promptReflowSnapshot.height}px`,
+            }"
+            aria-hidden="true"
           >
-            {{ imageAspectRatio }} · {{ imageResolution }} · {{ qualityLabel }} · {{ ui.draftParams.n }} 张
-          </button>
+            <div
+              class="prompt-reflow-snapshot-text"
+              :style="{ transform: `translateY(-${promptReflowSnapshot.scrollTop}px)` }"
+            >{{ promptReflowSnapshot.text }}</div>
+          </div>
+          <textarea
+            ref="promptEl"
+            v-model="ui.draftPrompt"
+            :rows="ui.dockOpen ? 3 : 1"
+            :class="promptReflowDirection ? `is-reflowing-${promptReflowDirection}` : undefined"
+            aria-label="图片生成提示词"
+            placeholder="描述你想看到的画面……"
+            @focus="ui.dockOpen = true"
+            @keydown="onKeydown"
+            @paste="onPaste"
+          />
+        </div>
+        <Transition name="dock-inline">
+          <div v-if="!ui.dockOpen" class="parameter-summary-slot">
+            <button
+              class="parameter-summary"
+              title="展开生成参数"
+              aria-label="展开生成参数"
+              aria-controls="visionmuse-create-panel"
+              :aria-expanded="ui.dockOpen"
+              @click="openDock"
+            >
+              {{ imageAspectRatio }} · {{ imageResolution }} · {{ qualityLabel }} · {{ ui.draftParams.n }} 张
+            </button>
+          </div>
         </Transition>
         <button class="send-button" :disabled="!canSubmit" title="生成（Ctrl + Enter）" aria-label="生成图片" @click="submit">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -911,10 +999,17 @@ watch(
 
 .dock-inline-enter-active,
 .dock-inline-leave-active {
-  transition: opacity 0.2s ease, transform 0.28s var(--ease-out-soft);
+  overflow: hidden;
+  transition:
+    width 0.42s var(--ease-out-soft),
+    margin-left 0.42s var(--ease-out-soft),
+    opacity 0.2s ease,
+    transform 0.28s var(--ease-out-soft);
 }
 .dock-inline-enter-from,
 .dock-inline-leave-to {
+  width: 0;
+  margin-left: 0;
   opacity: 0;
   transform: translateY(5px) scale(0.96);
 }
@@ -1064,7 +1159,7 @@ watch(
   display: flex;
   min-width: 0;
   align-items: flex-end;
-  gap: 10px;
+  gap: 0;
   margin: 12px 14px 7px;
   border: 1px solid var(--color-line2);
   border-radius: 16px;
@@ -1082,19 +1177,56 @@ watch(
   height: 36px;
   width: 36px;
   flex: none;
+  align-self: center;
   align-items: center;
   justify-content: center;
   border-radius: 50%;
   background: var(--color-accentsoft);
   color: var(--color-accenthi);
+  margin-right: 10px;
+}
+.prompt-viewport {
+  position: relative;
+  min-width: 0;
+  flex: 1 1 0;
+  overflow: hidden;
+}
+.prompt-reflow-snapshot {
+  position: absolute;
+  z-index: 1;
+  top: 0;
+  left: 0;
+  overflow: hidden;
+  pointer-events: none;
+  animation: prompt-reflow-snapshot-out 0.18s ease-out both;
+}
+.prompt-reflow-snapshot-text {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 36px;
+  padding: 7px 0;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--color-paper);
+}
+.prompt-reflow-snapshot.is-placeholder .prompt-reflow-snapshot-text {
+  color: var(--color-dim);
+}
+@keyframes prompt-reflow-snapshot-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
 }
 .composer-row textarea {
+  display: block;
   box-sizing: border-box;
-  width: 0;
+  width: 100%;
   min-width: 0;
   min-height: 36px;
   max-height: 168px;
-  flex: 1 1 0;
+  max-width: none;
   overflow-y: hidden;
   resize: none;
   border: 0;
@@ -1105,11 +1237,54 @@ watch(
   line-height: 1.55;
   color: var(--color-paper);
   outline: none;
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
   transition: height 0.38s var(--ease-out-soft);
   will-change: height;
 }
+.composer-row textarea::-webkit-scrollbar { width: 6px; }
+.composer-row textarea::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  background: transparent;
+  background-clip: content-box;
+}
+.composer-row textarea:hover {
+  scrollbar-color: var(--color-line2) transparent;
+}
+.composer-row textarea:hover::-webkit-scrollbar-thumb {
+  background: var(--color-line2);
+  background-clip: content-box;
+}
+.composer-row textarea.is-reflowing-opening {
+  overflow-y: hidden !important;
+  animation: prompt-text-reflow-opening 0.5s var(--ease-out-soft) both;
+}
+.composer-row textarea.is-reflowing-closing {
+  overflow-y: hidden !important;
+  animation: prompt-text-reflow-closing 0.5s var(--ease-out-soft) both;
+}
+.composer-row textarea.is-reflowing-opening::-webkit-scrollbar,
+.composer-row textarea.is-reflowing-closing::-webkit-scrollbar {
+  width: 0;
+}
+@keyframes prompt-text-reflow-opening {
+  0%, 82% { opacity: 0; }
+  100% { opacity: 1; }
+}
+@keyframes prompt-text-reflow-closing {
+  0%, 82% { opacity: 0; }
+  100% { opacity: 1; }
+}
 .composer-row textarea::placeholder { color: var(--color-dim); }
+.parameter-summary-slot {
+  width: 168px;
+  flex: none;
+  margin-left: 10px;
+  overflow: hidden;
+}
 .parameter-summary {
+  box-sizing: border-box;
+  width: 168px;
   flex: none;
   margin-bottom: 4px;
   border-radius: 999px;
@@ -1117,6 +1292,7 @@ watch(
   padding: 6px 9px;
   font-family: var(--font-mono);
   font-size: 9.5px;
+  white-space: nowrap;
   color: var(--color-fade);
 }
 .parameter-summary:hover { color: var(--color-paper); }
@@ -1130,6 +1306,7 @@ watch(
   border-radius: 50%;
   background: var(--color-paper);
   color: var(--color-well);
+  margin-left: 10px;
   box-shadow: 0 6px 18px rgb(38 35 28 / 0.24);
   transition: transform 0.2s var(--ease-out-soft), background 0.18s, opacity 0.18s;
 }
@@ -1547,10 +1724,11 @@ watch(
   .task-row { align-items: flex-start; }
   .task-row > .flex.shrink-0 { display: none; }
   .inspiration-row { padding-inline: 14px; }
-  .composer-row { gap: 8px; padding-inline: 10px; }
-  .composer-mark { height: 32px; width: 32px; }
+  .composer-row { gap: 0; padding-inline: 10px; }
+  .composer-mark { height: 32px; width: 32px; margin-right: 8px; }
+  .send-button { margin-left: 8px; }
   .composer-tools { padding-left: 44px; }
-  .parameter-summary { display: none; }
+  .parameter-summary-slot { display: none; }
   .parameter-tray { grid-template-columns: 1fr 1fr; padding: 11px 12px 14px; }
   .ratio-group { grid-column: span 2; }
   .format-group { grid-column: 1; }
